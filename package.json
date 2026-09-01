@@ -1,0 +1,16 @@
+{
+  "name": "creator-radar",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @creator-radar/web",
+    "build": "npm run build --workspace @creator-radar/web",
+    "typecheck": "npm run typecheck --workspace @creator-radar/web"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
