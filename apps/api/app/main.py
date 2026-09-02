@@ -170,7 +170,10 @@ def list_tasks():
 
 @app.get("/api/v1/providers/status", tags=["providers"])
 def get_provider_status():
-    return provider_status(settings)
+    status = provider_status(settings)
+    status["analysis"] = {"configured": bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model),
+                           "model": settings.llm_model or None}
+    return status
 
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):
