@@ -192,6 +192,24 @@ def create_creation_project(body: CreationInput):
         db.add(item); db.commit(); db.refresh(item)
         return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
 
+@app.get("/api/v1/creation-projects/{project_id}", tags=["creation"])
+def get_creation_project(project_id: str):
+    with SessionLocal() as db:
+        item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
+        if not item:
+            return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
+        return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
+
+@app.patch("/api/v1/creation-projects/{project_id}", tags=["creation"])
+def update_creation_project(project_id: str, body: CreationInput):
+    with SessionLocal() as db:
+        item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
+        if not item:
+            return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
+        item.title, item.idea, item.output_language = body.title, body.idea, body.output_language
+        db.commit(); db.refresh(item)
+        return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
+
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):
     try:
