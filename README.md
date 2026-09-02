@@ -82,4 +82,4 @@ TIKHUB_BASE_URL=https://api.tikhub.io
 - 不自动删除或搬迁 C 盘旧缓存；Windows 和工具仍可能使用 C 盘用户配置与临时目录。
 - 当前命令执行通过完全访问模式恢复，尚未验证受限沙箱修复。
 
-第一轮验收详见 docs/P0_LINK_VALIDATION.md；持久化导入切片详见 docs/P0_IMPORT_FOUNDATION.md；元数据接入详见 docs/P0_METADATA_PROVIDER.md；详情页详见 docs/P0_WORK_DETAIL.md；逐字稿基础详见 docs/P0_TRANSCRIPT_FOUNDATION.md。跨设备复制与部署 Skill 想法已记录在 docs/PORTABILITY_BACKLOG.md，待下次专门讨论。
+第一轮验收详见 docs/P0_LINK_VALIDATION.md；持久化导入切片详见 docs/P0_IMPORT_FOUNDATION.md；元数据接入详见 docs/P0_METADATA_PROVIDER.md；详情页详见 docs/P0_WORK_DETAIL.md；逐字稿基础详见 docs/P0_TRANSCRIPT_FOUNDATION.md；创作草稿基础详见 docs/P0_CREATION_FOUNDATION.md。跨设备复制与部署 Skill 想法已记录在 docs/PORTABILITY_BACKLOG.md，待下次专门讨论。
