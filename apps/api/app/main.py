@@ -35,6 +35,7 @@ class ImportInput(BaseModel):
 class CreationInput(BaseModel):
     title: str = Field(default="未命名创作", min_length=1, max_length=200)
     idea: str | None = Field(default=None, max_length=10000)
+    body: str | None = Field(default=None, max_length=50000)
     output_language: str = Field(default="zh-CN", max_length=20)
 
 def link_error(error: LinkError):
@@ -188,7 +189,7 @@ def list_creation_projects():
 @app.post("/api/v1/creation-projects", status_code=201, tags=["creation"])
 def create_creation_project(body: CreationInput):
     with SessionLocal() as db:
-        item = CreationProject(title=body.title, idea=body.idea, output_language=body.output_language)
+        item = CreationProject(title=body.title, idea=body.idea, body=body.body, output_language=body.output_language)
         db.add(item); db.commit(); db.refresh(item)
         return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
 
@@ -206,7 +207,7 @@ def update_creation_project(project_id: str, body: CreationInput):
         item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
         if not item:
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
-        item.title, item.idea, item.output_language = body.title, body.idea, body.output_language
+        item.title, item.idea, item.body, item.output_language = body.title, body.idea, body.body, body.output_language
         db.commit(); db.refresh(item)
         return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
 
