@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db import Base, SessionLocal, engine
-from app.models.work import Analysis, Task, Transcript, Work, WorkMetadata
+from app.models.work import Analysis, CreationProject, Task, Transcript, Work, WorkMetadata
 from app.providers.base import ProviderError
 from app.services.metadata_pipeline import process_task, provider_status
 from app.services.image_proxy import fetch_remote_image
@@ -32,6 +32,10 @@ class ImportInput(BaseModel):
     external_id: str = Field(min_length=1, max_length=64)
     normalized_url: str = Field(min_length=10, max_length=2000)
     availability_checked: bool
+class CreationInput(BaseModel):
+    title: str = Field(default="未命名创作", min_length=1, max_length=200)
+    idea: str | None = Field(default=None, max_length=10000)
+    output_language: str = Field(default="zh-CN", max_length=20)
 
 def link_error(error: LinkError):
     return JSONResponse(status_code=422, content={"code": error.code, "message": str(error)})
@@ -174,6 +178,19 @@ def get_provider_status():
     status["analysis"] = {"configured": bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model),
                            "model": settings.llm_model or None}
     return status
+
+@app.get("/api/v1/creation-projects", tags=["creation"])
+def list_creation_projects():
+    with SessionLocal() as db:
+        rows = db.scalars(select(CreationProject).where(CreationProject.owner_id == "local-user").order_by(CreationProject.updated_at.desc())).all()
+        return [{"id": x.id, "title": x.title, "idea": x.idea, "output_language": x.output_language, "status": x.status, "updated_at": x.updated_at.isoformat()} for x in rows]
+
+@app.post("/api/v1/creation-projects", status_code=201, tags=["creation"])
+def create_creation_project(body: CreationInput):
+    with SessionLocal() as db:
+        item = CreationProject(title=body.title, idea=body.idea, output_language=body.output_language)
+        db.add(item); db.commit(); db.refresh(item)
+        return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
 
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):

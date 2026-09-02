@@ -73,3 +73,17 @@ class Analysis(Base):
     error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class CreationProject(Base):
+    __tablename__ = "creation_projects"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_id: Mapped[str] = mapped_column(String(36), default="local-user", index=True)
+    title: Mapped[str] = mapped_column(String(200), default="未命名创作")
+    context_type: Mapped[str] = mapped_column(String(20), default="idea")
+    work_id: Mapped[str | None] = mapped_column(ForeignKey("works.id", ondelete="SET NULL"), nullable=True)
+    idea: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_language: Mapped[str] = mapped_column(String(20), default="zh-CN")
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT")
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
