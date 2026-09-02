@@ -182,3 +182,15 @@ def run_task(task_id: str):
     except ProviderError as error:
         status = 409 if error.code == "provider_not_configured" else 404 if error.code == "task_not_found" else 502
         return JSONResponse(status_code=status, content={"code": error.code, "message": str(error), "retryable": error.retryable})
+
+@app.post("/api/v1/tasks/{task_id}/retry", tags=["tasks"])
+def retry_task(task_id: str):
+    with SessionLocal() as db:
+        task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == "local-user"))
+        if not task:
+            return JSONResponse(status_code=404, content={"code": "task_not_found", "message": "任务不存在。"})
+        if task.status != "FAILED":
+            return JSONResponse(status_code=409, content={"code": "task_not_retryable", "message": "只有失败任务可以重试。"})
+        task.status, task.error_summary = "PENDING", None
+        db.commit()
+    return run_task(task_id)
