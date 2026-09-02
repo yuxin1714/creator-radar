@@ -1,0 +1,11 @@
+import { NextResponse } from "next/server";
+
+export async function GET(_request: Request, { params }: { params: Promise<{ workId: string }> }) {
+  const { workId } = await params;
+  try {
+    const r = await fetch((process.env.API_INTERNAL_BASE_URL ?? "http://127.0.0.1:8000") + `/api/v1/works/${encodeURIComponent(workId)}/analysis`, { signal: AbortSignal.timeout(10000), cache: "no-store" });
+    return NextResponse.json(await r.json(), { status: r.status });
+  } catch {
+    return NextResponse.json({ message: "暂时无法读取分析状态。" }, { status: 503 });
+  }
+}

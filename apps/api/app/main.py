@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db import Base, SessionLocal, engine
-from app.models.work import Task, Work, WorkMetadata
+from app.models.work import Analysis, Task, Transcript, Work, WorkMetadata
 from app.providers.base import ProviderError
 from app.services.metadata_pipeline import process_task, provider_status
 from app.services.image_proxy import fetch_remote_image
@@ -130,6 +130,24 @@ def get_work_transcript(work_id: str):
             return JSONResponse(status_code=404, content={"code": "work_not_found", "message": "作品不存在或已不可访问。"})
         db.expunge(work)
     return transcript_state(work, settings)
+
+@app.get("/api/v1/works/{work_id}/analysis", tags=["analysis"])
+def get_work_analysis(work_id: str):
+    with SessionLocal() as db:
+        work = db.scalar(select(Work).where(Work.id == work_id, Work.owner_id == "local-user"))
+        if not work:
+            return JSONResponse(status_code=404, content={"code": "work_not_found", "message": "作品不存在或已不可访问。"})
+        analysis = db.scalar(select(Analysis).where(Analysis.work_id == work.id, Analysis.owner_id == "local-user"))
+        transcript = db.scalar(select(Transcript).where(Transcript.work_id == work.id, Transcript.owner_id == "local-user", Transcript.kind == "SOURCE"))
+        if analysis:
+            return {"availability": "READY" if analysis.status == "COMPLETED" else analysis.status, "analysis": {
+                "id": analysis.id, "status": analysis.status, "analysis_language": analysis.analysis_language,
+                "schema_version": analysis.schema_version, "result": analysis.result,
+                "error_summary": analysis.error_summary, "created_at": analysis.created_at.isoformat(),
+                "updated_at": analysis.updated_at.isoformat()}}
+        if not transcript or transcript.status != "COMPLETED":
+            return {"availability": "NEEDS_TRANSCRIPT", "analysis": None, "message": "请先完成原文逐字稿，再进行内容分析。"}
+        return {"availability": "LLM_REQUIRED", "analysis": None, "message": "逐字稿已就绪；配置分析模型后即可生成内容拆解。"}
 
 @app.post("/api/v1/works/{work_id}/transcript", status_code=202, tags=["transcripts"])
 def start_work_transcript(work_id: str, background_tasks: BackgroundTasks):
