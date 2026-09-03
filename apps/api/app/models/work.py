@@ -107,3 +107,11 @@ class PlaybookSource(Base):
     revision: Mapped[str | None] = mapped_column(String(80), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class PlaybookRevision(Base):
+    __tablename__ = "playbook_revisions"
+    id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    source_id: Mapped[str] = mapped_column(ForeignKey("playbook_sources.id", ondelete="CASCADE"), index=True)
+    revision: Mapped[str] = mapped_column(String(80))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

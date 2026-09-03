@@ -15,6 +15,7 @@ from app.services.transcript_pipeline import prepare_transcript, process_transcr
 from app.services.link_validation import LinkError, validate_link
 from app.services.link_resolution import resolve_and_check
 from app.services.llm_analysis import configured as analysis_configured, process_analysis
+from app.services.remote_playbooks import sync_playbook
 
 settings = Settings()
 
@@ -211,6 +212,11 @@ def list_playbooks():
     with SessionLocal() as db:
         rows = db.scalars(select(PlaybookSource).where(PlaybookSource.status == "ACTIVE").order_by(PlaybookSource.name)).all()
         return [{"id": x.id, "name": x.name, "source_type": x.source_type, "repository_url": x.repository_url, "revision": x.revision, "synced_at": x.synced_at.isoformat()} for x in rows]
+
+@app.post("/api/v1/playbooks/{playbook_id}/sync", tags=["creation"])
+def sync_remote_playbook(playbook_id: str):
+    try: return sync_playbook(playbook_id)
+    except ProviderError as error: return JSONResponse(status_code=502, content={"code": error.code, "message": str(error)})
 
 @app.get("/api/v1/creation-projects", tags=["creation"])
 def list_creation_projects():
