@@ -1,0 +1,2 @@
+import { NextResponse } from "next/server";
+export async function POST(_request:Request,{params}:{params:Promise<{playbookId:string}>}){const {playbookId}=await params;try{const r=await fetch((process.env.API_INTERNAL_BASE_URL??"http://127.0.0.1:8000")+`/api/v1/playbooks/${encodeURIComponent(playbookId)}/sync`,{method:"POST",signal:AbortSignal.timeout(60000)});return NextResponse.json(await r.json(),{status:r.status})}catch{return NextResponse.json({message:"同步暂时不可用。"},{status:503})}}
