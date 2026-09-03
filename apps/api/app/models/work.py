@@ -96,3 +96,14 @@ class CreationBrief(Base):
     direction: Mapped[str] = mapped_column(String(50), default="structure_borrowing")
     style: Mapped[str] = mapped_column(String(50), default="professional")
     playbook_id: Mapped[str] = mapped_column(String(80), default="structure-borrowing-v1")
+
+class PlaybookSource(Base):
+    __tablename__ = "playbook_sources"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    source_type: Mapped[str] = mapped_column(String(20), default="remote")
+    repository_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    skill_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    revision: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

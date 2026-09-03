@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db import Base, SessionLocal, engine
-from app.models.work import Analysis, CreationBrief, CreationProject, Task, Transcript, Work, WorkMetadata
+from app.models.work import Analysis, CreationBrief, CreationProject, PlaybookSource, Task, Transcript, Work, WorkMetadata
 from app.providers.base import ProviderError
 from app.services.metadata_pipeline import process_task, provider_status
 from app.services.image_proxy import fetch_remote_image
@@ -21,6 +21,10 @@ settings = Settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
+    with SessionLocal() as db:
+        if not db.get(PlaybookSource, "tki-content-creation"):
+            db.add(PlaybookSource(id="tki-content-creation", name="TKI 创作 Skill：故事化产品内容", repository_url="https://github.com/yuxin1714/-.git", skill_path="tki-content-creation/SKILL.md", revision="d2c8a809b6c89d7ac4da179c904f85f5524cd1a8"))
+            db.commit()
     yield
 
 app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
@@ -201,6 +205,12 @@ def get_provider_status():
     status["analysis"] = {"configured": bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model),
                            "model": settings.llm_model or None}
     return status
+
+@app.get("/api/v1/playbooks", tags=["creation"])
+def list_playbooks():
+    with SessionLocal() as db:
+        rows = db.scalars(select(PlaybookSource).where(PlaybookSource.status == "ACTIVE").order_by(PlaybookSource.name)).all()
+        return [{"id": x.id, "name": x.name, "source_type": x.source_type, "repository_url": x.repository_url, "revision": x.revision, "synced_at": x.synced_at.isoformat()} for x in rows]
 
 @app.get("/api/v1/creation-projects", tags=["creation"])
 def list_creation_projects():
