@@ -87,3 +87,12 @@ class CreationProject(Base):
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+class CreationBrief(Base):
+    __tablename__ = "creation_briefs"
+    project_id: Mapped[str] = mapped_column(ForeignKey("creation_projects.id", ondelete="CASCADE"), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(30), default="tiktok")
+    content_type: Mapped[str] = mapped_column(String(50), default="knowledge")
+    direction: Mapped[str] = mapped_column(String(50), default="structure_borrowing")
+    style: Mapped[str] = mapped_column(String(50), default="professional")
+    playbook_id: Mapped[str] = mapped_column(String(80), default="structure-borrowing-v1")

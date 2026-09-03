@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db import Base, SessionLocal, engine
-from app.models.work import Analysis, CreationProject, Task, Transcript, Work, WorkMetadata
+from app.models.work import Analysis, CreationBrief, CreationProject, Task, Transcript, Work, WorkMetadata
 from app.providers.base import ProviderError
 from app.services.metadata_pipeline import process_task, provider_status
 from app.services.image_proxy import fetch_remote_image
@@ -37,6 +37,11 @@ class CreationInput(BaseModel):
     title: str = Field(default="未命名创作", min_length=1, max_length=200)
     idea: str | None = Field(default=None, max_length=10000)
     body: str | None = Field(default=None, max_length=50000)
+    platform: str = Field(default="tiktok", max_length=30)
+    content_type: str = Field(default="knowledge", max_length=50)
+    direction: str = Field(default="structure_borrowing", max_length=50)
+    style: str = Field(default="professional", max_length=50)
+    playbook_id: str = Field(default="structure-borrowing-v1", max_length=80)
     output_language: str = Field(default="zh-CN", max_length=20)
 
 def link_error(error: LinkError):
@@ -54,6 +59,9 @@ def metadata_json(item: WorkMetadata | None):
             "duration_seconds": item.duration_seconds,
             "published_at": item.published_at.isoformat() if item.published_at else None,
             "metrics": item.metrics, "fetched_at": item.fetched_at.isoformat()}
+
+def creation_json(item: CreationProject, brief: CreationBrief | None):
+    return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}}
 
 @app.get("/health", tags=["system"])
 def health():
@@ -204,8 +212,8 @@ def list_creation_projects():
 def create_creation_project(body: CreationInput):
     with SessionLocal() as db:
         item = CreationProject(title=body.title, idea=body.idea, body=body.body, output_language=body.output_language)
-        db.add(item); db.commit(); db.refresh(item)
-        return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
+        db.add(item); db.flush(); db.add(CreationBrief(project_id=item.id, platform=body.platform, content_type=body.content_type, direction=body.direction, style=body.style, playbook_id=body.playbook_id)); db.commit(); db.refresh(item)
+        return creation_json(item, db.get(CreationBrief, item.id))
 
 @app.get("/api/v1/creation-projects/{project_id}", tags=["creation"])
 def get_creation_project(project_id: str):
@@ -213,7 +221,7 @@ def get_creation_project(project_id: str):
         item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
         if not item:
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
-        return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
+        return creation_json(item, db.get(CreationBrief, item.id))
 
 @app.patch("/api/v1/creation-projects/{project_id}", tags=["creation"])
 def update_creation_project(project_id: str, body: CreationInput):
@@ -222,8 +230,11 @@ def update_creation_project(project_id: str, body: CreationInput):
         if not item:
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
         item.title, item.idea, item.body, item.output_language = body.title, body.idea, body.body, body.output_language
+        brief = db.get(CreationBrief, item.id) or CreationBrief(project_id=item.id)
+        brief.platform, brief.content_type, brief.direction, brief.style, brief.playbook_id = body.platform, body.content_type, body.direction, body.style, body.playbook_id
+        db.add(brief)
         db.commit(); db.refresh(item)
-        return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat()}
+        return creation_json(item, db.get(CreationBrief, item.id))
 
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):
