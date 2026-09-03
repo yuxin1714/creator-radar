@@ -14,6 +14,7 @@ from app.services.image_proxy import fetch_remote_image
 from app.services.transcript_pipeline import prepare_transcript, process_transcript, transcript_json, transcript_state
 from app.services.link_validation import LinkError, validate_link
 from app.services.link_resolution import resolve_and_check
+from app.services.llm_analysis import configured as analysis_configured, process_analysis
 
 settings = Settings()
 
@@ -152,7 +153,20 @@ def get_work_analysis(work_id: str):
                 "updated_at": analysis.updated_at.isoformat()}}
         if not transcript or transcript.status != "COMPLETED":
             return {"availability": "NEEDS_TRANSCRIPT", "analysis": None, "message": "请先完成原文逐字稿，再进行内容分析。"}
-        return {"availability": "LLM_REQUIRED", "analysis": None, "message": "逐字稿已就绪；配置分析模型后即可生成内容拆解。"}
+        return {"availability": "READY_TO_ANALYZE" if analysis_configured(settings) else "LLM_REQUIRED", "analysis": None, "message": "逐字稿已就绪；可以开始生成内容拆解。" if analysis_configured(settings) else "逐字稿已就绪；配置分析模型后即可生成内容拆解。"}
+
+@app.post("/api/v1/works/{work_id}/analysis", status_code=202, tags=["analysis"])
+def start_work_analysis(work_id: str, background_tasks: BackgroundTasks):
+    if not analysis_configured(settings):
+        return JSONResponse(status_code=409, content={"code": "llm_not_configured", "message": "分析模型尚未配置。"})
+    with SessionLocal() as db:
+        transcript = db.scalar(select(Transcript).where(Transcript.work_id == work_id, Transcript.owner_id == "local-user", Transcript.kind == "SOURCE"))
+        if not transcript or transcript.status != "COMPLETED":
+            return JSONResponse(status_code=409, content={"code": "transcript_required", "message": "请先完成原文逐字稿。"})
+        item = db.scalar(select(Analysis).where(Analysis.work_id == work_id, Analysis.owner_id == "local-user")) or Analysis(work_id=work_id)
+        item.status, item.error_summary = "PENDING", None; db.add(item); db.commit()
+    background_tasks.add_task(process_analysis, work_id, settings)
+    return {"message": "内容分析已开始。"}
 
 @app.post("/api/v1/works/{work_id}/transcript", status_code=202, tags=["transcripts"])
 def start_work_transcript(work_id: str, background_tasks: BackgroundTasks):
