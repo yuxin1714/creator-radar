@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import json
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -47,6 +48,10 @@ class CreationInput(BaseModel):
     direction: str = Field(default="structure_borrowing", max_length=50)
     style: str = Field(default="professional", max_length=50)
     playbook_id: str = Field(default="structure-borrowing-v1", max_length=80)
+class PlaybookInput(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    rules: list[str] = Field(default_factory=list, max_length=20)
     output_language: str = Field(default="zh-CN", max_length=20)
 
 def link_error(error: LinkError):
@@ -212,6 +217,17 @@ def list_playbooks():
     with SessionLocal() as db:
         rows = db.scalars(select(PlaybookSource).where(PlaybookSource.status == "ACTIVE").order_by(PlaybookSource.name)).all()
         return [{"id": x.id, "name": x.name, "source_type": x.source_type, "repository_url": x.repository_url, "revision": x.revision, "synced_at": x.synced_at.isoformat()} for x in rows]
+
+@app.post("/api/v1/playbooks", status_code=201, tags=["creation"])
+def create_playbook(body: PlaybookInput):
+    import uuid
+    from app.services.creation_playbooks import PLAYBOOKS
+    playbook_id = "custom-" + uuid.uuid4().hex[:12]
+    PLAYBOOKS[playbook_id] = {"name": body.name, "version": "1.0", "rules": body.rules, "description": body.description}
+    with SessionLocal() as db:
+        item = PlaybookSource(id=playbook_id, name=body.name, source_type="custom", skill_path=None, revision="1.0")
+        db.add(item); db.flush(); db.add(PlaybookRevision(id=f"{playbook_id}:1.0", source_id=playbook_id, revision="1.0", content=json.dumps(PLAYBOOKS[playbook_id], ensure_ascii=False))); db.commit(); db.refresh(item)
+        return {"id": item.id, "name": item.name, "source_type": item.source_type, "repository_url": item.repository_url, "revision": item.revision, "synced_at": item.synced_at.isoformat()}
 
 @app.post("/api/v1/playbooks/{playbook_id}/sync", tags=["creation"])
 def sync_remote_playbook(playbook_id: str):
