@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db import Base, SessionLocal, engine
-from app.models.work import Analysis, CreationBrief, CreationProject, PlaybookSource, Task, Transcript, Work, WorkMetadata
+from app.models.work import Analysis, CreationBrief, CreationGeneration, CreationProject, PlaybookSource, Task, Transcript, Work, WorkMetadata
 from app.providers.base import ProviderError
 from app.services.metadata_pipeline import process_task, provider_status
 from app.services.image_proxy import fetch_remote_image
@@ -17,6 +17,7 @@ from app.services.link_validation import LinkError, validate_link
 from app.services.link_resolution import resolve_and_check
 from app.services.llm_analysis import configured as analysis_configured, process_analysis
 from app.services.remote_playbooks import sync_playbook
+from app.services.creation_generation import generate as generate_creation
 
 settings = Settings()
 
@@ -71,7 +72,9 @@ def metadata_json(item: WorkMetadata | None):
             "metrics": item.metrics, "fetched_at": item.fetched_at.isoformat()}
 
 def creation_json(item: CreationProject, brief: CreationBrief | None):
-    return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}}
+    with SessionLocal() as db:
+        generation = db.scalar(select(CreationGeneration).where(CreationGeneration.project_id == item.id).order_by(CreationGeneration.created_at.desc()))
+    return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision}}
 
 @app.get("/health", tags=["system"])
 def health():
@@ -267,6 +270,16 @@ def update_creation_project(project_id: str, body: CreationInput):
         db.add(brief)
         db.commit(); db.refresh(item)
         return creation_json(item, db.get(CreationBrief, item.id))
+
+@app.post("/api/v1/creation-projects/{project_id}/generations", status_code=202, tags=["creation"])
+def start_creation_generation(project_id: str, background_tasks: BackgroundTasks):
+    if not analysis_configured(settings): return JSONResponse(status_code=409, content={"code": "llm_not_configured", "message": "生成模型尚未配置。"})
+    with SessionLocal() as db:
+        project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user")); brief = db.get(CreationBrief, project_id)
+        if not project or not brief: return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
+        item = CreationGeneration(project_id=project_id, playbook_id=brief.playbook_id); db.add(item); db.commit(); db.refresh(item)
+    background_tasks.add_task(generate_creation, project_id, item.id, settings)
+    return {"message": "创作草稿生成已开始。", "generation_id": item.id}
 
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):

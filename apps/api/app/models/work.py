@@ -97,6 +97,18 @@ class CreationBrief(Base):
     style: Mapped[str] = mapped_column(String(50), default="professional")
     playbook_id: Mapped[str] = mapped_column(String(80), default="structure-borrowing-v1")
 
+class CreationGeneration(Base):
+    __tablename__ = "creation_generations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    project_id: Mapped[str] = mapped_column(ForeignKey("creation_projects.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
+    playbook_id: Mapped[str] = mapped_column(String(80))
+    playbook_revision: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
 class PlaybookSource(Base):
     __tablename__ = "playbook_sources"
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
