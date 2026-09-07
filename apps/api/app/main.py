@@ -59,6 +59,43 @@ class PlaybookInput(BaseModel):
     description: str = Field(default="", max_length=1000)
     rules: list[str] = Field(default_factory=list, max_length=20)
 
+class PlaybookEditInput(PlaybookInput):
+    expected_revision: str = Field(min_length=1, max_length=80)
+
+@app.get("/api/v1/playbooks/{playbook_id}", tags=["creation"])
+def get_custom_playbook(playbook_id: str):
+    with SessionLocal() as db:
+        source = db.get(PlaybookSource, playbook_id)
+        if not source or source.source_type != "custom":
+            return JSONResponse(status_code=404, content={"message": "自定义 Skill 不存在。"})
+        saved = db.get(PlaybookRevision, f"{playbook_id}:{source.revision}")
+        if not saved:
+            return JSONResponse(status_code=409, content={"message": "Skill 内容版本缺失。"})
+        return {"id": source.id, "revision": source.revision, **json.loads(saved.content)}
+
+@app.patch("/api/v1/playbooks/{playbook_id}", tags=["creation"])
+def edit_custom_playbook(playbook_id: str, body: PlaybookEditInput):
+    from app.models.work import utcnow
+    with SessionLocal() as db:
+        source = db.scalar(select(PlaybookSource).where(PlaybookSource.id == playbook_id).with_for_update())
+        if not source or source.source_type != "custom":
+            return JSONResponse(status_code=404, content={"message": "自定义 Skill 不存在。"})
+        if source.revision != body.expected_revision:
+            return JSONResponse(status_code=409, content={"message": "Skill 已在其他页面更新，请重新打开后编辑。"})
+        saved = db.get(PlaybookRevision, f"{playbook_id}:{source.revision}")
+        if not saved:
+            return JSONResponse(status_code=409, content={"message": "Skill 内容版本缺失。"})
+        previous = json.loads(saved.content)
+        content = {"name": body.name, "description": body.description, "rules": body.rules}
+        if all(previous.get(key) == value for key, value in content.items()):
+            return {"id": source.id, "revision": source.revision, "updated": False}
+        revision = f"1.{int(source.revision.split('.')[1]) + 1}"
+        content["version"] = revision
+        db.add(PlaybookRevision(id=f"{playbook_id}:{revision}", source_id=playbook_id, revision=revision, content=json.dumps(content, ensure_ascii=False)))
+        source.name, source.revision, source.synced_at = body.name, revision, utcnow()
+        db.commit()
+        return {"id": source.id, "revision": revision, "updated": True}
+
 def link_error(error: LinkError):
     return JSONResponse(status_code=422, content={"code": error.code, "message": str(error)})
 

@@ -85,3 +85,22 @@ class CreationApiTests(unittest.TestCase):
             item = CreationProject(owner_id="other", title="Private")
             db.add(item); db.commit(); project_id = item.id
         self.assertEqual(main.list_creation_versions(project_id).status_code, 404)
+
+    def test_custom_skill_edit_retains_versions_and_rejects_stale_save(self):
+        created = main.create_playbook(main.PlaybookInput(name="Original", rules=["Original rule"]))
+        edited = main.edit_custom_playbook(created["id"], main.PlaybookEditInput(name="Edited", rules=["New rule"], expected_revision="1.0"))
+        self.assertEqual(edited["revision"], "1.1")
+        self.assertEqual(main.get_custom_playbook(created["id"])["rules"], ["New rule"])
+        with self.sessions() as db:
+            self.assertIn("Original rule", db.get(PlaybookRevision, created["id"] + ":1.0").content)
+        unchanged = main.edit_custom_playbook(created["id"], main.PlaybookEditInput(name="Edited", rules=["New rule"], expected_revision="1.1"))
+        self.assertFalse(unchanged["updated"])
+        stale = main.edit_custom_playbook(created["id"], main.PlaybookEditInput(name="Stale", expected_revision="1.0"))
+        self.assertEqual(stale.status_code, 409)
+
+    def test_remote_skill_cannot_be_edited_as_custom(self):
+        from app.models.work import PlaybookSource
+        with self.sessions() as db:
+            db.add(PlaybookSource(id="remote-test", name="Remote", source_type="remote")); db.commit()
+        self.assertEqual(main.get_custom_playbook("remote-test").status_code, 404)
+        self.assertEqual(main.edit_custom_playbook("remote-test", main.PlaybookEditInput(name="Bad", expected_revision="1.0")).status_code, 404)
