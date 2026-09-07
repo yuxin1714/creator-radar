@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from app.core.config import Settings
 from app.db import Base, SessionLocal, engine
-from app.models.work import Analysis, CreationBrief, CreationGeneration, CreationProject, PlaybookSource, Task, Transcript, Work, WorkMetadata
+from app.models.work import Analysis, CreationBrief, CreationGeneration, CreationProject, PlaybookRevision, PlaybookSource, Task, Transcript, Work, WorkMetadata
 from app.providers.base import ProviderError
 from app.services.metadata_pipeline import process_task, provider_status
 from app.services.image_proxy import fetch_remote_image
@@ -41,6 +41,7 @@ class ImportInput(BaseModel):
     normalized_url: str = Field(min_length=10, max_length=2000)
     availability_checked: bool
 class CreationInput(BaseModel):
+    output_language: str = Field(default="zh-CN", max_length=20)
     title: str = Field(default="未命名创作", min_length=1, max_length=200)
     idea: str | None = Field(default=None, max_length=10000)
     body: str | None = Field(default=None, max_length=50000)
@@ -53,7 +54,6 @@ class PlaybookInput(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=1000)
     rules: list[str] = Field(default_factory=list, max_length=20)
-    output_language: str = Field(default="zh-CN", max_length=20)
 
 def link_error(error: LinkError):
     return JSONResponse(status_code=422, content={"code": error.code, "message": str(error)})
