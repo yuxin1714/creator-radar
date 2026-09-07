@@ -257,10 +257,26 @@ def get_provider_status():
     return status
 
 @app.get("/api/v1/playbooks", tags=["creation"])
-def list_playbooks():
+def list_playbooks(include_inactive: bool = False):
     with SessionLocal() as db:
-        rows = db.scalars(select(PlaybookSource).where(PlaybookSource.status == "ACTIVE").order_by(PlaybookSource.name)).all()
-        return [{"id": x.id, "name": x.name, "source_type": x.source_type, "repository_url": x.repository_url, "revision": x.revision, "synced_at": x.synced_at.isoformat()} for x in rows]
+        query = select(PlaybookSource).order_by(PlaybookSource.name)
+        if not include_inactive:
+            query = query.where(PlaybookSource.status == "ACTIVE")
+        rows = db.scalars(query).all()
+        return [{"id": x.id, "name": x.name, "status": x.status, "source_type": x.source_type, "repository_url": x.repository_url, "revision": x.revision, "synced_at": x.synced_at.isoformat()} for x in rows]
+
+class PlaybookStatusInput(BaseModel):
+    enabled: bool
+
+@app.patch("/api/v1/playbooks/{playbook_id}/status", tags=["creation"])
+def set_playbook_status(playbook_id: str, body: PlaybookStatusInput):
+    with SessionLocal() as db:
+        source = db.scalar(select(PlaybookSource).where(PlaybookSource.id == playbook_id).with_for_update())
+        if not source:
+            return JSONResponse(status_code=404, content={"message": "Skill 不存在。"})
+        source.status = "ACTIVE" if body.enabled else "DISABLED"
+        db.commit()
+        return {"id": source.id, "status": source.status}
 
 @app.post("/api/v1/playbooks", status_code=201, tags=["creation"])
 def create_playbook(body: PlaybookInput):

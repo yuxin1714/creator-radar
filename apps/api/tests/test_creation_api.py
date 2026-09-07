@@ -104,3 +104,18 @@ class CreationApiTests(unittest.TestCase):
             db.add(PlaybookSource(id="remote-test", name="Remote", source_type="remote")); db.commit()
         self.assertEqual(main.get_custom_playbook("remote-test").status_code, 404)
         self.assertEqual(main.edit_custom_playbook("remote-test", main.PlaybookEditInput(name="Bad", expected_revision="1.0")).status_code, 404)
+
+    def test_disabled_skill_hidden_and_rules_preserved(self):
+        from app.services.creation_playbooks import resolve_playbook
+        from app.providers.base import ProviderError
+        skill = main.create_playbook(main.PlaybookInput(name="Toggle", rules=["Keep this rule"]))
+        main.set_playbook_status(skill["id"], main.PlaybookStatusInput(enabled=False))
+        self.assertEqual(main.list_playbooks(), [])
+        self.assertEqual(main.list_playbooks(True)[0]["status"], "DISABLED")
+        with self.sessions() as db:
+            with self.assertRaises(ProviderError) as error:
+                resolve_playbook(db, skill["id"])
+            self.assertEqual(error.exception.code, "playbook_disabled")
+            self.assertIn("Keep this rule", db.get(PlaybookRevision, skill["id"] + ":1.0").content)
+        main.set_playbook_status(skill["id"], main.PlaybookStatusInput(enabled=True))
+        self.assertEqual(main.list_playbooks()[0]["revision"], "1.0")
