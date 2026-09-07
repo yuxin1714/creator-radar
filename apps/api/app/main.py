@@ -42,6 +42,7 @@ class ImportInput(BaseModel):
     normalized_url: str = Field(min_length=10, max_length=2000)
     availability_checked: bool
 class CreationInput(BaseModel):
+    work_id: str | None = Field(default=None, max_length=36)
     output_language: str = Field(default="zh-CN", max_length=20)
     title: str = Field(default="未命名创作", min_length=1, max_length=200)
     idea: str | None = Field(default=None, max_length=10000)
@@ -75,7 +76,7 @@ def metadata_json(item: WorkMetadata | None):
 def creation_json(item: CreationProject, brief: CreationBrief | None):
     with SessionLocal() as db:
         generation = db.scalar(select(CreationGeneration).where(CreationGeneration.project_id == item.id).order_by(CreationGeneration.created_at.desc()))
-    return {"id": item.id, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision}}
+    return {"id": item.id, "work_id": item.work_id, "context_type": item.context_type, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision}}
 
 @app.get("/health", tags=["system"])
 def health():
@@ -247,7 +248,9 @@ def list_creation_projects():
 @app.post("/api/v1/creation-projects", status_code=201, tags=["creation"])
 def create_creation_project(body: CreationInput):
     with SessionLocal() as db:
-        item = CreationProject(title=body.title, idea=body.idea, body=body.body, output_language=body.output_language)
+        if body.work_id and not db.scalar(select(Work).where(Work.id == body.work_id, Work.owner_id == "local-user")):
+            return JSONResponse(status_code=404, content={"code": "work_not_found", "message": "参考作品不存在或不可访问。"})
+        item = CreationProject(title=body.title, idea=body.idea, body=body.body, output_language=body.output_language, work_id=body.work_id, context_type="work" if body.work_id else "idea")
         db.add(item); db.flush(); db.add(CreationBrief(project_id=item.id, platform=body.platform, content_type=body.content_type, direction=body.direction, style=body.style, playbook_id=body.playbook_id)); db.commit(); db.refresh(item)
         return creation_json(item, db.get(CreationBrief, item.id))
 

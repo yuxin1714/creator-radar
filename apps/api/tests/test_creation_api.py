@@ -6,7 +6,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app import main
 from app.db import Base
-from app.models.work import PlaybookRevision
+from app.models.work import PlaybookRevision, Work, Analysis, Transcript
+from app.services.creation_generation import reference_context
 
 
 class CreationApiTests(unittest.TestCase):
@@ -38,3 +39,29 @@ class CreationApiTests(unittest.TestCase):
             saved = db.scalar(select(PlaybookRevision).where(PlaybookRevision.source_id == created["id"]))
             self.assertIsNotNone(saved)
             self.assertIn("Use verified facts", saved.content)
+
+    def test_reference_survives_edit_and_loads_only_completed_material(self):
+        with self.sessions() as db:
+            work = Work(platform="douyin", external_id="test", source_url="https://www.douyin.com/video/test")
+            db.add(work); db.commit()
+            work_id = work.id
+            db.add(Transcript(work_id=work_id, status="COMPLETED", text="Source text"))
+            db.add(Analysis(work_id=work_id, status="FAILED", result={"summary": "stale"}))
+            db.commit()
+        created = main.create_creation_project(main.CreationInput(title="Test", work_id=work_id))
+        edited = main.update_creation_project(created["id"], main.CreationInput(title="New title"))
+        self.assertEqual(edited["work_id"], work_id)
+        self.assertEqual(edited["context_type"], "work")
+        with self.sessions() as db:
+            from app.models.work import CreationProject
+            reference = reference_context(db, db.get(CreationProject, created["id"]))
+            self.assertEqual(reference["transcript"], "Source text")
+            self.assertIsNone(reference["analysis"])
+
+    def test_foreign_reference_is_rejected(self):
+        with self.sessions() as db:
+            work = Work(owner_id="someone-else", platform="douyin", external_id="test", source_url="https://www.douyin.com/video/test")
+            db.add(work); db.commit()
+            work_id = work.id
+        response = main.create_creation_project(main.CreationInput(work_id=work_id))
+        self.assertEqual(response.status_code, 404)
