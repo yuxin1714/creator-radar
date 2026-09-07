@@ -26,6 +26,11 @@ class CreationApiTests(unittest.TestCase):
         read = main.get_creation_project(created["id"])
         self.assertEqual(read["output_language"], "en")
         self.assertEqual(read["body"], "Draft")
+        for language in ("en", "zh-en", "zh-CN"):
+            main.update_creation_project(created["id"], main.CreationInput(title="Test", output_language=language, body="Updated"))
+            reread = main.get_creation_project(created["id"])
+            self.assertEqual(reread["output_language"], language)
+            self.assertEqual(reread["body"], "Updated")
 
     def test_custom_rules_are_persisted(self):
         created = main.create_playbook(main.PlaybookInput(name="Test skill", rules=["Use verified facts"]))
