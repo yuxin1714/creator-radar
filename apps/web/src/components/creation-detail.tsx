@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { readRecovery, recoveryKey } from "@/lib/draft-recovery";
 import { useUnsavedDraft } from "@/hooks/use-unsaved-draft";
 import { DraftHistory, type DraftSnapshot } from "@/components/draft-history";
 import { ExportDraft } from "@/components/export-draft";
@@ -10,6 +11,8 @@ type Brief={platform:string;content_type:string;direction:string;style:string;pl
 const platforms=[['tiktok','TikTok'],['instagram','Instagram'],['x','X / Twitter'],['douyin','抖音'],['xiaohongshu','小红书']];const contentTypes=[['knowledge','知识科普'],['technology','AI / 技术解读'],['business','商业 / 产品观察'],['commentary','观点评论'],['story','故事 / 案例'],['tutorial','教程 / 操作指南']];const directions=[['structure_borrowing','结构借鉴'],['opinion_reverse','观点反向'],['cross_domain','跨领域迁移'],['deep_expand','深度扩展'],['platform_adapt','平台改写']];const styles=[['professional','理性专业'],['friendly','朋友式讲解'],['sharp','强观点犀利'],['storytelling','故事化叙述'],['concise','极简直接']];
 export function CreationDetail({projectId}:{projectId:string}){const [item,setItem]=useState<Project|null>(null),[skills,setSkills]=useState<Playbook[]>([]),[title,setTitle]=useState(""),[idea,setIdea]=useState(""),[body,setBody]=useState(""),[brief,setBrief]=useState<Brief>({platform:"tiktok",content_type:"knowledge",direction:"structure_borrowing",style:"professional",playbook_id:"structure-borrowing-v1"}),[message,setMessage]=useState(""),[busy,setBusy]=useState(false),[generating,setGenerating]=useState(false);
  const [pollEpoch,setPollEpoch]=useState(0);
+ const [recovery,setRecovery]=useState<DraftSnapshot|null>(null);
+ const [recoveryError,setRecoveryError]=useState("");
  const [historyRefresh,setHistoryRefresh]=useState(0);
  function loadVersion(snapshot:DraftSnapshot){
    setTitle(snapshot.title);setIdea(snapshot.idea||"");setBody(snapshot.body||"");setLanguage(snapshot.output_language);
@@ -22,8 +25,25 @@ export function CreationDetail({projectId}:{projectId:string}){const [item,setIt
  const dirty=!!item&&(title!==item.title||idea!==(item.idea||"")||body!==(item.body||"")||language!==item.output_language||(Object.keys(defaultBrief) as Array<keyof Brief>).some(key=>brief[key]!==savedBrief[key]));
  useUnsavedDraft(dirty);
  useEffect(()=>{
+   if(!item||item.id!==projectId||recovery)return;
+   try{
+     if(dirty)sessionStorage.setItem(recoveryKey(projectId),JSON.stringify({title,idea,body,output_language:language,brief}));
+     else sessionStorage.removeItem(recoveryKey(projectId));
+     setRecoveryError("");
+   }catch{setRecoveryError("浏览器暂存不可用，请及时保存草稿。");}
+ },[projectId,item,dirty,recovery,title,idea,body,language,brief]);
+ function recoverDraft(){
+   if(!recovery)return;
+   loadVersion(recovery);setRecovery(null);
+   setMessage("未保存草稿已恢复，保存后写入项目。");
+ }
+ function discardRecovery(){
+   try{sessionStorage.removeItem(recoveryKey(projectId));setRecovery(null);}
+   catch{setRecoveryError("无法清除浏览器暂存。");}
+ }
+ useEffect(()=>{
    const controller=new AbortController();
-   setItem(null);
+   setItem(null);setRecovery(null);
    async function load(){
      try {
        const r=await fetch(`/api/creation-projects/${encodeURIComponent(projectId)}`,{cache:"no-store",signal:controller.signal});
@@ -31,7 +51,12 @@ export function CreationDetail({projectId}:{projectId:string}){const [item,setIt
        if(!r.ok)throw new Error(project.message||"无法读取项目");
        if(controller.signal.aborted)return;
        setItem(project);setTitle(project.title);setIdea(project.idea||"");setBody(project.body||"");setLanguage(project.output_language||"zh-CN");
-       if(project.brief)setBrief(project.brief);
+       setBrief(project.brief||defaultBrief);
+       try{
+         const cached=readRecovery(projectId);
+         const baseline={title:project.title,idea:project.idea||"",body:project.body||"",output_language:project.output_language,brief:project.brief||defaultBrief};
+         if(cached&&JSON.stringify(cached)!==JSON.stringify(baseline))setRecovery(cached);
+       }catch{setRecoveryError("浏览器暂存不可用，请及时保存草稿。");}
        const sr=await fetch("/api/playbooks",{cache:"no-store",signal:controller.signal});
        if(!sr.ok)throw new Error("Skill 列表读取失败");
        const skills=await sr.json();
@@ -71,7 +96,7 @@ export function CreationDetail({projectId}:{projectId:string}){const [item,setIt
      const r=await fetch(`/api/creation-projects/${encodeURIComponent(projectId)}`,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({title,idea:idea||null,body:body||null,output_language:language,...brief})});
      const d=await r.json();
      if(!r.ok)throw new Error(d.message||"保存失败");
-     setItem(d);setHistoryRefresh(x=>x+1);setMessage("草稿和创作 Skill 已保存。");
+     setItem(d);setRecovery(null);setHistoryRefresh(x=>x+1);setMessage("草稿和创作 Skill 已保存。");
      return true;
    }catch(e){setMessage(e instanceof Error?e.message:"保存失败。");return false;}
    finally{setBusy(false);}
@@ -89,4 +114,4 @@ export function CreationDetail({projectId}:{projectId:string}){const [item,setIt
    }catch(e){setMessage(e instanceof Error?e.message:"无法开始生成。");}
    finally{setGenerating(false);}
  }
- if(!item&&!message)return <div className="detail-loading"><LoaderCircle className="spin"/>正在读取创作项目…</div>;if(!item)return <><Link className="back-link" href="/creation"><ArrowLeft size={15}/>返回创作空间</Link><section className="panel detail-error"><h1>无法打开项目</h1><p>{message}</p></section></>;const select=(label:string,key:keyof Brief,options:string[][])=><label>{label}<select value={brief[key]} onChange={e=>setBrief({...brief,[key]:e.target.value})}>{options.map(([value,text])=><option key={value} value={value}>{text}</option>)}</select></label>;const generation=item.latest_generation,running=generation?.status==="PENDING"||generation?.status==="PROCESSING";return <><Link className="back-link" href="/creation"><ArrowLeft size={15}/>返回创作空间</Link><section className="panel creation-editor"><div className="section-heading"><div><p className="eyebrow">CREATION DRAFT</p><h1>{item.title}</h1><p>草稿项目 · {item.status} · <span role="status">{busy?"正在保存":dirty?"未保存":"已保存"}</span></p></div><span className="neutral-label">{new Date(item.updated_at).toLocaleDateString("zh-CN")}</span></div>{item.work_id&&<div className="creation-reference"><span>参考作品已关联</span><Link href={`/works/${item.work_id}?tab=analysis`}>查看作品与分析</Link></div>}<label>项目标题<input value={title} onChange={e=>setTitle(e.target.value)}/></label><label>创作想法<textarea value={idea} onChange={e=>setIdea(e.target.value)} placeholder="记录主题、受众或想表达的观点"/></label><div className="brief-grid"><label>输出语言<select aria-label="输出语言" value={language} onChange={e=>setLanguage(e.target.value)}><option value="zh-CN">中文</option><option value="en">English</option><option value="zh-en">中英双语</option></select></label>{select("目标平台","platform",platforms)}{select("内容类型","content_type",contentTypes)}{select("创作方向","direction",directions)}{select("表达风格","style",styles)}<label>创作 Skill<select value={brief.playbook_id} onChange={e=>setBrief({...brief,playbook_id:e.target.value})}><option value="structure-borrowing-v1">结构借鉴，观点重构</option>{skills.map(skill=><option key={skill.id} value={skill.id}>{skill.name}{skill.revision?` · ${skill.revision.slice(0,8)}`:""}</option>)}</select></label></div><label>正文草稿<textarea className="body-editor" value={body} onChange={e=>setBody(e.target.value)} placeholder="在这里写下正文；GPT 生成后也会保存到这里"/></label><div className="editor-actions"><ExportDraft title={title} body={body} workId={item.work_id}/><Button onClick={save} disabled={busy||generating||!title.trim()}>{busy?<LoaderCircle className="spin" size={15}/>:<Save size={15}/>}保存草稿</Button><Button variant="outline" onClick={generate} disabled={busy||generating||running||!title.trim()}>{generating||running?<LoaderCircle className="spin" size={15}/>:<Sparkles size={15}/>}生成草稿</Button>{message&&<span><Check size={15}/>{message}</span>}</div>{running&&<div className="generation-progress"><LoaderCircle className="spin" size={17}/>正在按已选择的 Skill 生成内容…</div>}{generation?.status==="FAILED"&&<p className="task-error">{generation.error_summary}</p>}{generation?.status==="COMPLETED"&&generation.content&&<section className="generation-preview"><div><strong>生成预览</strong><small>Skill {generation.playbook_id} · {generation.playbook_revision?.slice(0,8)||"本地版本"}</small></div><pre>{generation.content}</pre><Button onClick={()=>setBody(generation.content||"")}>采用到正文</Button></section>}<DraftHistory projectId={projectId} refresh={historyRefresh} onLoad={loadVersion}/><div className="quiet-note">生成结果先保留为预览，只有点击“采用到正文”后才会替换编辑器中的内容。</div></section></>}
+ if(!item&&!message)return <div className="detail-loading"><LoaderCircle className="spin"/>正在读取创作项目…</div>;if(!item)return <><Link className="back-link" href="/creation"><ArrowLeft size={15}/>返回创作空间</Link><section className="panel detail-error"><h1>无法打开项目</h1><p>{message}</p></section></>;const select=(label:string,key:keyof Brief,options:string[][])=><label>{label}<select value={brief[key]} onChange={e=>setBrief({...brief,[key]:e.target.value})}>{options.map(([value,text])=><option key={value} value={value}>{text}</option>)}</select></label>;const generation=item.latest_generation,running=generation?.status==="PENDING"||generation?.status==="PROCESSING";return <><Link className="back-link" href="/creation"><ArrowLeft size={15}/>返回创作空间</Link><section className="panel creation-editor">{recovery&&<div className="draft-recovery" role="status"><p>发现此项目的未保存草稿</p><Button variant="outline" onClick={recoverDraft}>恢复未保存草稿</Button><Button variant="ghost" onClick={discardRecovery}>丢弃暂存</Button></div>}{recoveryError&&<p role="alert" className="draft-recovery">{recoveryError}</p>}<div className="section-heading"><div><p className="eyebrow">CREATION DRAFT</p><h1>{item.title}</h1><p>草稿项目 · {item.status} · <span role="status">{busy?"正在保存":dirty?"未保存":"已保存"}</span></p></div><span className="neutral-label">{new Date(item.updated_at).toLocaleDateString("zh-CN")}</span></div>{item.work_id&&<div className="creation-reference"><span>参考作品已关联</span><Link href={`/works/${item.work_id}?tab=analysis`}>查看作品与分析</Link></div>}<label>项目标题<input value={title} onChange={e=>setTitle(e.target.value)}/></label><label>创作想法<textarea value={idea} onChange={e=>setIdea(e.target.value)} placeholder="记录主题、受众或想表达的观点"/></label><div className="brief-grid"><label>输出语言<select aria-label="输出语言" value={language} onChange={e=>setLanguage(e.target.value)}><option value="zh-CN">中文</option><option value="en">English</option><option value="zh-en">中英双语</option></select></label>{select("目标平台","platform",platforms)}{select("内容类型","content_type",contentTypes)}{select("创作方向","direction",directions)}{select("表达风格","style",styles)}<label>创作 Skill<select value={brief.playbook_id} onChange={e=>setBrief({...brief,playbook_id:e.target.value})}><option value="structure-borrowing-v1">结构借鉴，观点重构</option>{skills.map(skill=><option key={skill.id} value={skill.id}>{skill.name}{skill.revision?` · ${skill.revision.slice(0,8)}`:""}</option>)}</select></label></div><label>正文草稿<textarea className="body-editor" value={body} onChange={e=>setBody(e.target.value)} placeholder="在这里写下正文；GPT 生成后也会保存到这里"/></label><div className="editor-actions"><ExportDraft title={title} body={body} workId={item.work_id}/><Button onClick={save} disabled={busy||generating||!title.trim()}>{busy?<LoaderCircle className="spin" size={15}/>:<Save size={15}/>}保存草稿</Button><Button variant="outline" onClick={generate} disabled={busy||generating||running||!title.trim()}>{generating||running?<LoaderCircle className="spin" size={15}/>:<Sparkles size={15}/>}生成草稿</Button>{message&&<span><Check size={15}/>{message}</span>}</div>{running&&<div className="generation-progress"><LoaderCircle className="spin" size={17}/>正在按已选择的 Skill 生成内容…</div>}{generation?.status==="FAILED"&&<p className="task-error">{generation.error_summary}</p>}{generation?.status==="COMPLETED"&&generation.content&&<section className="generation-preview"><div><strong>生成预览</strong><small>Skill {generation.playbook_id} · {generation.playbook_revision?.slice(0,8)||"本地版本"}</small></div><pre>{generation.content}</pre><Button onClick={()=>setBody(generation.content||"")}>采用到正文</Button></section>}<DraftHistory projectId={projectId} refresh={historyRefresh} onLoad={loadVersion}/><div className="quiet-note">生成结果先保留为预览，只有点击“采用到正文”后才会替换编辑器中的内容。</div></section></>}
