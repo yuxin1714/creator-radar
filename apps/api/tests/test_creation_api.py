@@ -65,3 +65,23 @@ class CreationApiTests(unittest.TestCase):
             work_id = work.id
         response = main.create_creation_project(main.CreationInput(work_id=work_id))
         self.assertEqual(response.status_code, 404)
+
+    def test_versions_preserve_original_and_skip_duplicate_saves(self):
+        created = main.create_creation_project(main.CreationInput(title="Original", body="First"))
+        project_id = created["id"]
+        update = main.CreationInput(title="Edited", body="Second", output_language="en")
+        main.update_creation_project(project_id, update)
+        main.update_creation_project(project_id, update)
+        versions = main.list_creation_versions(project_id)
+        self.assertEqual([v["version_number"] for v in versions], [2, 1])
+        self.assertEqual(versions[1]["snapshot"]["body"], "First")
+        self.assertEqual(versions[0]["snapshot"]["output_language"], "en")
+        main.update_creation_project(project_id, main.CreationInput(title="Original", body="First"))
+        self.assertEqual(len(main.list_creation_versions(project_id)), 3)
+
+    def test_version_read_checks_owner(self):
+        from app.models.work import CreationProject
+        with self.sessions() as db:
+            item = CreationProject(owner_id="other", title="Private")
+            db.add(item); db.commit(); project_id = item.id
+        self.assertEqual(main.list_creation_versions(project_id).status_code, 404)

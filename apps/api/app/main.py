@@ -19,6 +19,8 @@ from app.services.llm_analysis import configured as analysis_configured, process
 from app.services.remote_playbooks import sync_playbook
 from app.services.creation_generation import generate as generate_creation
 from app.services.creation_playbooks import resolve_playbook
+from app.services.creation_versions import record_version
+from app.models.work import CreationVersion
 
 settings = Settings()
 
@@ -265,15 +267,27 @@ def get_creation_project(project_id: str):
 @app.patch("/api/v1/creation-projects/{project_id}", tags=["creation"])
 def update_creation_project(project_id: str, body: CreationInput):
     with SessionLocal() as db:
-        item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
+        item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user").with_for_update())
         if not item:
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
+        record_version(db, item, db.get(CreationBrief, item.id))
         item.title, item.idea, item.body, item.output_language = body.title, body.idea, body.body, body.output_language
         brief = db.get(CreationBrief, item.id) or CreationBrief(project_id=item.id)
         brief.platform, brief.content_type, brief.direction, brief.style, brief.playbook_id = body.platform, body.content_type, body.direction, body.style, body.playbook_id
         db.add(brief)
+        db.flush()
+        record_version(db, item, brief)
         db.commit(); db.refresh(item)
         return creation_json(item, db.get(CreationBrief, item.id))
+
+@app.get("/api/v1/creation-projects/{project_id}/versions", tags=["creation"])
+def list_creation_versions(project_id: str):
+    with SessionLocal() as db:
+        project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
+        if not project:
+            return JSONResponse(status_code=404, content={"message": "创作项目不存在。"})
+        rows = db.scalars(select(CreationVersion).where(CreationVersion.project_id == project_id).order_by(CreationVersion.version_number.desc()).limit(50)).all()
+        return [{"id": row.id, "version_number": row.version_number, "snapshot": row.snapshot, "created_at": row.created_at.isoformat()} for row in rows]
 
 @app.post("/api/v1/creation-projects/{project_id}/generations", status_code=202, tags=["creation"])
 def start_creation_generation(project_id: str, background_tasks: BackgroundTasks):
