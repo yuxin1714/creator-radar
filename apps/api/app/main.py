@@ -18,6 +18,7 @@ from app.services.link_resolution import resolve_and_check
 from app.services.llm_analysis import configured as analysis_configured, process_analysis
 from app.services.remote_playbooks import sync_playbook
 from app.services.creation_generation import generate as generate_creation
+from app.services.creation_playbooks import resolve_playbook
 
 settings = Settings()
 
@@ -226,10 +227,10 @@ def create_playbook(body: PlaybookInput):
     import uuid
     from app.services.creation_playbooks import PLAYBOOKS
     playbook_id = "custom-" + uuid.uuid4().hex[:12]
-    PLAYBOOKS[playbook_id] = {"name": body.name, "version": "1.0", "rules": body.rules, "description": body.description}
+    content = {"name": body.name, "version": "1.0", "rules": body.rules, "description": body.description}
     with SessionLocal() as db:
         item = PlaybookSource(id=playbook_id, name=body.name, source_type="custom", skill_path=None, revision="1.0")
-        db.add(item); db.flush(); db.add(PlaybookRevision(id=f"{playbook_id}:1.0", source_id=playbook_id, revision="1.0", content=json.dumps(PLAYBOOKS[playbook_id], ensure_ascii=False))); db.commit(); db.refresh(item)
+        db.add(item); db.flush(); db.add(PlaybookRevision(id=f"{playbook_id}:1.0", source_id=playbook_id, revision="1.0", content=json.dumps(content, ensure_ascii=False))); db.commit(); db.refresh(item)
         return {"id": item.id, "name": item.name, "source_type": item.source_type, "repository_url": item.repository_url, "revision": item.revision, "synced_at": item.synced_at.isoformat()}
 
 @app.post("/api/v1/playbooks/{playbook_id}/sync", tags=["creation"])
@@ -277,7 +278,11 @@ def start_creation_generation(project_id: str, background_tasks: BackgroundTasks
     with SessionLocal() as db:
         project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user")); brief = db.get(CreationBrief, project_id)
         if not project or not brief: return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
-        item = CreationGeneration(project_id=project_id, playbook_id=brief.playbook_id); db.add(item); db.commit(); db.refresh(item)
+        try:
+            revision, _ = resolve_playbook(db, brief.playbook_id)
+        except ProviderError as error:
+            return JSONResponse(status_code=409, content={"code": error.code, "message": str(error)})
+        item = CreationGeneration(project_id=project_id, playbook_id=brief.playbook_id, playbook_revision=revision); db.add(item); db.commit(); db.refresh(item)
     background_tasks.add_task(generate_creation, project_id, item.id, settings)
     return {"message": "创作草稿生成已开始。", "generation_id": item.id}
 
