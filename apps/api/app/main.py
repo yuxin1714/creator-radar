@@ -24,6 +24,8 @@ from app.models.work import GenerationInput
 from app.services.creation_versions import record_version
 from app.models.work import CreationVersion
 from app.creator_routes import router as creator_router
+from app.models.work_preferences import WorkPreferences
+from app.services.work_preferences import preferences_json, save_preferences, PreferencesInput
 
 settings = Settings()
 
@@ -181,7 +183,8 @@ def import_work(body: ImportInput):
 def list_works():
     with SessionLocal() as db:
         works = db.scalars(select(Work).where(Work.owner_id == "local-user").order_by(Work.created_at.desc())).all()
-        return [{**work_json(item), "metadata": metadata_json(db.get(WorkMetadata, item.id))} for item in works]
+        preferences={item.work_id:item for item in db.scalars(select(WorkPreferences).join(Work,Work.id==WorkPreferences.work_id).where(Work.owner_id=='local-user'))}
+        return [{**work_json(item), "metadata": metadata_json(db.get(WorkMetadata, item.id)), "preferences": preferences_json(preferences.get(item.id))} for item in works]
 
 @app.get("/api/v1/works/{work_id}", tags=["works"])
 def get_work(work_id: str):
@@ -192,7 +195,13 @@ def get_work(work_id: str):
         task = db.scalar(select(Task).where(Task.work_id == work.id, Task.owner_id == "local-user").order_by(Task.created_at.desc()))
         task_data = None if not task else {"id": task.id, "stage": task.stage, "status": task.status,
             "error_summary": task.error_summary, "created_at": task.created_at.isoformat()}
-        return {**work_json(work), "metadata": metadata_json(db.get(WorkMetadata, work.id)), "latest_task": task_data}
+        return {**work_json(work), "metadata": metadata_json(db.get(WorkMetadata, work.id)), "latest_task": task_data, "preferences": preferences_json(db.get(WorkPreferences,work.id))}
+
+@app.patch("/api/v1/works/{work_id}/preferences", tags=["works"])
+def update_work_preferences(work_id:str,body:PreferencesInput):
+    with SessionLocal() as db:
+        try:return save_preferences(db,work_id,body)
+        except ProviderError as error:return JSONResponse(status_code=404 if error.code=='work_not_found' else 409,content={'message':str(error)})
 
 @app.get("/api/v1/works/{work_id}/cover", tags=["works"])
 def get_work_cover(work_id: str):
