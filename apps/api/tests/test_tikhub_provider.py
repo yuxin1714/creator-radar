@@ -3,6 +3,10 @@ from app.providers.base import ProviderError
 from app.providers.tikhub import TikHubProvider, normalize_payload
 
 class TikHubProviderTests(unittest.TestCase):
+    def test_duration_units_come_from_platform_not_value_size(self):
+        for platform,value,expected in [('douyin',7000,7),('douyin',0,0),('tiktok',12000,12000)]:
+            result=normalize_payload(platform,{'data':{'desc':'Example','video':{'duration':value}}})
+            self.assertEqual(result.duration_seconds,expected)
     def test_requires_key_before_network(self):
         with self.assertRaises(ProviderError) as result:
             TikHubProvider("").fetch_work("douyin", "123")

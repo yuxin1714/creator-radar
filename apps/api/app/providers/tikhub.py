@@ -65,7 +65,7 @@ def normalize_payload(platform: str, payload: dict) -> WorkMetadataResult:
     author_name = _pick(author, "nickname", "uniqueId", "name") or (item.get("author") if isinstance(item.get("author"), str) else None)
     author_id = _pick(author, "uid", "id", "uniqueId", "unique_id", "channelId") or _pick(item, "channelId", "author_id")
     cover = _first_url(_pick(video, "cover", "origin_cover", "dynamicCover", "thumbnail", "thumbnails"))
-    try: duration_seconds = round(float(duration) / 1000) if duration and float(duration) > 10000 else int(duration) if duration else None
+    try: duration_seconds = round(float(duration) / 1000) if duration is not None and platform == "douyin" else int(duration) if duration is not None else None
     except (TypeError, ValueError): duration_seconds = None
     clean_metrics = {str(k): v for k, v in stats.items() if isinstance(v, (int, float, str)) and v not in (None, "")}
     if not any((title, author_name, cover)): raise ProviderError("invalid_payload", "数据服务响应缺少可用的作品元数据。")
