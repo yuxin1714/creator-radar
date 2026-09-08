@@ -4,7 +4,7 @@
 
 ## 日常启动
 
-先打开 Docker Desktop，随后双击项目根目录的 **Start-Workbench.cmd**。
+先打开 Docker Desktop，随后双击桌面的 **Creator Radar 工作台** 雷达图标。图形入口后台启动服务，页面就绪后自动打开；命令行排查入口 **Start-Workbench.cmd** 仍保留。
 
 工作台入口：http://127.0.0.1:3000/today 。启动器会检查数据库、API 和前端，复用已运行的本项目服务。详细操作与故障排查见 [本地使用说明](docs/LOCAL_USE.md)。
 

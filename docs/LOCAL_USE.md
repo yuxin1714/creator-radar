@@ -5,7 +5,7 @@
 ## 每天启动（当前 Windows 电脑）
 
 1. 打开 Docker Desktop，等待引擎正常。
-2. 在项目根目录双击 `Start-Workbench.cmd`。脚本启动数据库、API 和前端，再打开浏览器。
+2. 双击桌面的“Creator Radar 工作台”雷达图标。图形启动器显示简洁的启动进度，后台准备数据库、API 和前端，页面就绪后打开浏览器。
 3. 打开 `http://127.0.0.1:3000/today`。重复启动会复用本项目已运行的服务，不杀进程、不重建数据库。
 
 也可在项目根目录运行：
@@ -13,6 +13,10 @@
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-local.ps1
 ```
+
+桌面入口不显示终端，失败时弹出提示，日志位于 `data/logs/desktop-startup.log`。关闭启动进度窗口只隐藏它，不中断服务启动。原 `Start-Workbench.cmd` 保留为排查入口，会显示命令行窗口。
+
+重新创建桌面入口：运行 `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-desktop-shortcut.ps1`。此脚本使用 Windows 自带 .NET Framework 编译图形启动器，输出到 Git 忽略的 `data/desktop-launcher/`，不下载额外运行时。图标源文件在 assets/creator-radar.svg，包含七种 ICO 尺寸；修改图标后可运行 `node scripts/build-desktop-icon.cjs` 重新生成。
 
 启动脚本用于已经安装依赖、配置好后端 `.env` 的 Windows 项目。不会覆盖凭证或自动安装软件。脚本仍使用 Next 开发服务，适合当前本地设计与验证阶段。Mac 启动脚本暂未提供，跨设备恢复方法见 DATA_BACKUP_RESTORE.md。
 
