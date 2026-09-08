@@ -26,7 +26,7 @@ class TaskOverviewTests(unittest.TestCase):
                 creation = next(item for item in items if item['kind']=='creation')
                 self.assertEqual(creation['stage'], 'refine')
                 self.assertEqual(creation['status'], 'PROCESSING')
-                self.assertEqual(creation['href'], '/creation/'+project.id)
+                self.assertEqual(creation['href'], '/creation/'+project.id+'?generation='+gen.id)
                 analysis = next(item for item in items if item['kind']=='analysis')
                 self.assertEqual(analysis['error_summary'], 'Analysis failed')
                 self.assertTrue(analysis['href'].endswith('?tab=analysis'))

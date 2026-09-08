@@ -11,6 +11,26 @@ from app.services.creation_generation import reference_context
 
 
 class CreationApiTests(unittest.TestCase):
+    def test_generation_history_is_scoped_and_excludes_prompt_context(self):
+        from app.models.work import CreationProject, CreationGeneration, GenerationInput
+        created=main.create_creation_project(main.CreationInput(title="History"))
+        with self.sessions() as db:
+            other=CreationProject(title="Other",owner_id="someone-else")
+            db.add(other);db.flush()
+            gen=CreationGeneration(project_id=created['id'],playbook_id='test',content='Saved output',status='COMPLETED')
+            private=CreationGeneration(project_id=other.id,playbook_id='test',content='Private output')
+            db.add_all([gen,private]);db.flush()
+            db.add(GenerationInput(generation_id=gen.id,mode='refine',context={'skill':'Full private prompt'},model='test'))
+            db.commit();gid,pid,oid=gen.id,private.id,other.id
+        items=main.list_creation_generations(created['id'])
+        self.assertEqual(len(items),1)
+        self.assertEqual(items[0]['mode'],'refine')
+        self.assertEqual(items[0]['content'],'Saved output')
+        self.assertNotIn('context',items[0])
+        self.assertEqual(main.list_creation_generations(created['id'],pid),[])
+        self.assertEqual(main.list_creation_generations(oid).status_code,404)
+        self.assertEqual(main.list_creation_generations(created['id'],gid)[0]['id'],gid)
+
     def setUp(self):
         self.engine = create_engine("sqlite://")
         Base.metadata.create_all(self.engine)

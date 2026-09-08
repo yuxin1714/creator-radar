@@ -22,5 +22,5 @@ def task_overview(db):
         items.append({"id": task.id, "kind": "creation", "title": project.title,
                       "stage": mode or "draft", "status": task.status,
                       "error_summary": task.error_summary, "created_at": task.created_at.isoformat(),
-                      "href": f"/creation/{project.id}"})
+                      "href": f"/creation/{project.id}?generation={task.id}"})
     return sorted(items, key=lambda item: item["created_at"], reverse=True)[:200]

@@ -370,6 +370,20 @@ def list_creation_versions(project_id: str):
         rows = db.scalars(select(CreationVersion).where(CreationVersion.project_id == project_id).order_by(CreationVersion.version_number.desc()).limit(50)).all()
         return [{"id": row.id, "version_number": row.version_number, "snapshot": row.snapshot, "created_at": row.created_at.isoformat()} for row in rows]
 
+@app.get("/api/v1/creation-projects/{project_id}/generations", tags=["creation"])
+def list_creation_generations(project_id: str, generation_id: str | None = None):
+    with SessionLocal() as db:
+        project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
+        if not project:
+            return JSONResponse(status_code=404, content={"message": "创作项目不存在。"})
+        query = select(CreationGeneration, GenerationInput).outerjoin(GenerationInput, GenerationInput.generation_id == CreationGeneration.id).where(CreationGeneration.project_id == project_id)
+        if generation_id:
+            query = query.where(CreationGeneration.id == generation_id)
+        return [{"id": gen.id, "mode": inputs.mode if inputs else "draft", "status": gen.status,
+                 "content": gen.content, "error_summary": gen.error_summary, "created_at": gen.created_at.isoformat(),
+                 "playbook_id": gen.playbook_id, "playbook_revision": gen.playbook_revision}
+                for gen, inputs in db.execute(query.order_by(CreationGeneration.created_at.desc()).limit(50))]
+
 @app.post("/api/v1/creation-projects/{project_id}/generations", status_code=202, tags=["creation"])
 def start_creation_generation(project_id: str, background_tasks: BackgroundTasks, options: GenerationOptions | None = None):
     if not analysis_configured(settings):
