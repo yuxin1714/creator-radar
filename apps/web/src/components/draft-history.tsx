@@ -1,4 +1,5 @@
 "use client";
+import { Pagination,emptyPage,type PageInfo } from "@/components/pagination";
 import { DraftPreview } from "@/components/draft-preview";
 
 import { useEffect, useState } from "react";
@@ -12,6 +13,7 @@ export type DraftSnapshot = {
 type Version = { id: string; version_number: number; snapshot: DraftSnapshot; created_at: string };
 
 export function DraftHistory({ projectId, refresh, onLoad, disabled=false }: { projectId: string; refresh: number; onLoad: (snapshot: DraftSnapshot) => void; disabled?:boolean }) {
+  const [page,setPage]=useState(1),[pageInfo,setPageInfo]=useState<PageInfo>(emptyPage);
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState("");
@@ -21,22 +23,22 @@ export function DraftHistory({ projectId, refresh, onLoad, disabled=false }: { p
     if (!open) return;
     const controller = new AbortController();
     setLoading(true); setError("");
-    fetch(`/api/creation-projects/${encodeURIComponent(projectId)}/versions`, { cache: "no-store", signal: controller.signal })
+    fetch(`/api/creation-projects/${encodeURIComponent(projectId)}/versions?page=${page}`, { cache: "no-store", signal: controller.signal })
       .then(async response => {
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || "读取失败");
-        if (!controller.signal.aborted) { setVersions(data); setSelected(data[0]?.id || ""); }
+        const payload = await response.json();const data=Array.isArray(payload)?payload:payload.items;
+        if (!response.ok) throw new Error(payload.message || "读取失败");
+        if (!controller.signal.aborted) { setPageInfo(Array.isArray(payload)?{...emptyPage,total:data.length}:payload);setVersions(data); setSelected(data[0]?.id || ""); }
       })
       .catch(error => { if (!controller.signal.aborted) setError(error.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [projectId, open, refresh]);
+  }, [projectId, open, refresh, page]);
   const version = versions.find(version => version.id === selected);
   return <details className="draft-history" onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>版本历史</summary>
     {loading ? <p role="status">正在读取版本…</p> : error ? <p role="alert">{error}</p> : <>
       {versions.length === 0 ? <p>暂无保存版本。</p> : <>
-        <label>最近 50 个版本<select value={selected} onChange={event => setSelected(event.target.value)}>
+        <label>本页保存版本<select value={selected} onChange={event => setSelected(event.target.value)}>
           {versions.map(version => <option key={version.id} value={version.id}>V{version.version_number} · {new Date(version.created_at).toLocaleString("zh-CN")}</option>)}
         </select></label>
         {version && <div className="history-preview"><h3>{version.snapshot.title}</h3><p>{version.snapshot.idea}</p><DraftPreview content={version.snapshot.body || "（正文为空）"}/>
@@ -44,5 +46,6 @@ export function DraftHistory({ projectId, refresh, onLoad, disabled=false }: { p
         </div>}
       </>}
     </>}
+    {open&&<Pagination info={pageInfo} busy={loading} onPage={setPage}/>}
   </details>;
 }

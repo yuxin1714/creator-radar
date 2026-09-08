@@ -33,6 +33,7 @@ from app.services.local_preferences import LocalPreference, LocalPreferenceInput
 from app.services.project_lifecycle import ProjectStatusInput,change_project_status
 from app.research_routes import router as research_router
 from app.models.research import ResearchRun
+from app.services.pagination import paginated
 
 settings = Settings()
 
@@ -211,14 +212,17 @@ def import_work(body: ImportInput):
         return {"created": True, "work": work_json(work), "task_id": task.id, "message": "作品已保存，并创建等待处理任务。"}
 
 @app.get("/api/v1/works", tags=["works"])
-def list_works():
+def list_works(page:int|None=None,page_size:int=20,q:str='',platform:str='',scope:str='all',tag:str=''):
     with SessionLocal() as db:
         works = db.scalars(select(Work).where(Work.owner_id == "local-user").order_by(Work.created_at.desc())).all()
         preferences={item.work_id:item for item in db.scalars(select(WorkPreferences).join(Work,Work.id==WorkPreferences.work_id).where(Work.owner_id=='local-user'))}
         transcripts={item.work_id:item.status for item in db.scalars(select(Transcript).where(Transcript.owner_id=='local-user',Transcript.kind=='SOURCE'))}
         analyses={item.work_id:item.status for item in db.scalars(select(Analysis).where(Analysis.owner_id=='local-user'))}
         metadata={item.work_id:item for item in db.scalars(select(WorkMetadata).join(Work,Work.id==WorkMetadata.work_id).where(Work.owner_id=='local-user'))}
-        return [{**work_json(item), "metadata": metadata_json(metadata.get(item.id)), "preferences": preferences_json(preferences.get(item.id)), "transcript_status":transcripts.get(item.id,'NOT_STARTED'),"analysis_status":analyses.get(item.id,'NOT_STARTED')} for item in works]
+        items=[{**work_json(item), "metadata": metadata_json(metadata.get(item.id)), "preferences": preferences_json(preferences.get(item.id)), "transcript_status":transcripts.get(item.id,'NOT_STARTED'),"analysis_status":analyses.get(item.id,'NOT_STARTED')} for item in works]
+        tags=sorted({tag for item in items for tag in item['preferences']['tags']})
+        filtered=[item for item in items if (not platform or platform=='all' or item['platform']==platform) and (scope=='all' or scope=='active' and not item['preferences']['archived'] or scope=='favorites' and item['preferences']['favorite'] and not item['preferences']['archived'] or scope=='archived' and item['preferences']['archived']) and (not tag or tag in item['preferences']['tags']) and q.strip().lower() in ' '.join([item['title'] or '',item['external_id'],(item['metadata'] or {}).get('author_name') or '',*item['preferences']['tags']]).lower()]
+        return paginated(filtered,page,page_size,tags=tags)
 
 @app.get("/api/v1/works/{work_id}", tags=["works"])
 def get_work(work_id: str):
@@ -316,10 +320,12 @@ def start_work_transcript(work_id: str, background_tasks: BackgroundTasks):
     return {"message": "本地转写已开始。", "transcript": transcript_json(transcript)}
 
 @app.get("/api/v1/tasks", tags=["tasks"])
-def list_tasks():
+def list_tasks(page:int|None=None,page_size:int=20,status:str='all'):
     from app.services.task_overview import task_overview
     with SessionLocal() as db:
-        return task_overview(db)
+        items=task_overview(db)
+        items=[item for item in items if status=='all' or status=='active' and item['status'] in ('PENDING','PROCESSING') or status=='FAILED' and item['status'] in ('FAILED','BLOCKED') or status==item['status']]
+        return paginated(items,page,page_size) if page is not None else items[:200]
 
 @app.get("/api/v1/providers/status", tags=["providers"])
 def get_provider_status():
@@ -391,10 +397,12 @@ def sync_remote_playbook(playbook_id: str):
     except ProviderError as error: return JSONResponse(status_code=502, content={"code": error.code, "message": str(error)})
 
 @app.get("/api/v1/creation-projects", tags=["creation"])
-def list_creation_projects():
+def list_creation_projects(page:int|None=None,page_size:int=20,q:str='',language:str='all',status:str='all'):
     with SessionLocal() as db:
         rows = db.scalars(select(CreationProject).where(CreationProject.owner_id == "local-user").order_by(CreationProject.updated_at.desc())).all()
-        return [{"id": x.id, "title": x.title, "idea": x.idea, "output_language": x.output_language, "status": x.status, "updated_at": x.updated_at.isoformat()} for x in rows]
+        items=[{"id": x.id, "title": x.title, "idea": x.idea, "output_language": x.output_language, "status": x.status, "updated_at": x.updated_at.isoformat()} for x in rows]
+        items=[item for item in items if (language=='all' or item['output_language']==language) and (status=='all' or status=='active' and item['status']!='ARCHIVED' or item['status']==status) and q.strip().lower() in (item['title']+' '+(item['idea'] or '')).lower()]
+        return paginated(items,page,page_size)
 
 @app.post("/api/v1/creation-projects", status_code=201, tags=["creation"])
 def create_creation_project(body: CreationInput):
@@ -448,27 +456,29 @@ def update_creation_project(project_id: str, body: CreationInput):
         return creation_json(item, db.get(CreationBrief, item.id))
 
 @app.get("/api/v1/creation-projects/{project_id}/versions", tags=["creation"])
-def list_creation_versions(project_id: str):
+def list_creation_versions(project_id: str,page:int|None=None,page_size:int=20):
     with SessionLocal() as db:
         project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
         if not project:
             return JSONResponse(status_code=404, content={"message": "创作项目不存在。"})
-        rows = db.scalars(select(CreationVersion).where(CreationVersion.project_id == project_id).order_by(CreationVersion.version_number.desc()).limit(50)).all()
-        return [{"id": row.id, "version_number": row.version_number, "snapshot": row.snapshot, "created_at": row.created_at.isoformat()} for row in rows]
+        rows = db.scalars(select(CreationVersion).where(CreationVersion.project_id == project_id).order_by(CreationVersion.version_number.desc())).all()
+        items=[{"id": row.id, "version_number": row.version_number, "snapshot": row.snapshot, "created_at": row.created_at.isoformat()} for row in rows]
+        return paginated(items,page,page_size) if page is not None else items[:50]
 
 @app.get("/api/v1/creation-projects/{project_id}/generations", tags=["creation"])
-def list_creation_generations(project_id: str, generation_id: str | None = None):
+def list_creation_generations(project_id: str, generation_id: str | None = None,page:int|None=None,page_size:int=20):
     with SessionLocal() as db:
         project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user"))
         if not project:
             return JSONResponse(status_code=404, content={"message": "创作项目不存在。"})
-        query = select(CreationGeneration, GenerationInput).outerjoin(GenerationInput, GenerationInput.generation_id == CreationGeneration.id).where(CreationGeneration.project_id == project_id)
+        query = select(CreationGeneration, GenerationInput.mode).outerjoin(GenerationInput, GenerationInput.generation_id == CreationGeneration.id).where(CreationGeneration.project_id == project_id)
         if generation_id:
             query = query.where(CreationGeneration.id == generation_id)
-        return [{"id": gen.id, "mode": inputs.mode if inputs else "draft", "status": gen.status,
+        items=[{"id": gen.id, "mode": mode or "draft", "status": gen.status,
                  "content": gen.content, "error_summary": gen.error_summary, "created_at": gen.created_at.isoformat(),
                  "playbook_id": gen.playbook_id, "playbook_revision": gen.playbook_revision}
-                for gen, inputs in db.execute(query.order_by(CreationGeneration.created_at.desc()).limit(50))]
+                for gen, mode in db.execute(query.order_by(CreationGeneration.created_at.desc(),CreationGeneration.id))]
+        return paginated(items,page,page_size) if page is not None else items[:50]
 
 @app.post("/api/v1/creation-projects/{project_id}/generations", status_code=202, tags=["creation"])
 def start_creation_generation(project_id: str, background_tasks: BackgroundTasks, options: GenerationOptions | None = None):

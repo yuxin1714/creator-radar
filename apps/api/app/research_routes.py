@@ -9,6 +9,7 @@ from app.models.research import ResearchRun
 from app.services.research import ResearchInput,prepare_research,process_research,text_hash
 from app.providers.base import ProviderError
 from app.services.analysis_validation import validate_analysis
+from app.services.pagination import paginated
 
 
 def verified(result,text):
@@ -23,13 +24,13 @@ def run_json(item,current_text):
 
 
 @router.get('/works/{work_id}/research')
-def get_research(work_id:str,kind:Literal['translation','analysis'],language:Literal['zh-CN','en'],run_id:str|None=None):
+def get_research(work_id:str,kind:Literal['translation','analysis'],language:Literal['zh-CN','en'],run_id:str|None=None,page:int=1,page_size:int=20):
     with SessionLocal() as db:
         work=db.scalar(select(Work).where(Work.id==work_id,Work.owner_id=='local-user'))
         if not work:return JSONResponse(status_code=404,content={'message':'作品不存在。'})
         source=db.scalar(select(Transcript).where(Transcript.work_id==work_id,Transcript.owner_id=='local-user',Transcript.kind=='SOURCE',Transcript.status=='COMPLETED'))
         text=source.text if source else ''
-        items=db.scalars(select(ResearchRun).where(ResearchRun.work_id==work_id,ResearchRun.owner_id=='local-user',ResearchRun.kind==kind,ResearchRun.language==language).order_by(ResearchRun.created_at.desc()).limit(20)).all()
+        items=db.scalars(select(ResearchRun).where(ResearchRun.work_id==work_id,ResearchRun.owner_id=='local-user',ResearchRun.kind==kind,ResearchRun.language==language).order_by(ResearchRun.created_at.desc(),ResearchRun.id)).all()
         history=[run_json(item,text or '') for item in items]
         if run_id and not any(item.id==run_id for item in items):
             extra=db.scalar(select(ResearchRun).where(ResearchRun.id==run_id,ResearchRun.work_id==work_id,ResearchRun.owner_id=='local-user',ResearchRun.kind==kind,ResearchRun.language==language))
@@ -38,7 +39,10 @@ def get_research(work_id:str,kind:Literal['translation','analysis'],language:Lit
             legacy=db.scalar(select(Analysis).where(Analysis.work_id==work_id,Analysis.owner_id=='local-user',Analysis.analysis_language==language))
             if legacy:history=[{'id':legacy.id,'kind':kind,'language':language,'status':legacy.status,'result':legacy.result,'source_text':text,'source_stale':False,'legacy':True,'completed_units':0,'total_units':1,'error_summary':legacy.error_summary,'created_at':legacy.created_at}]
         for run in history:run['evidence_verified']=kind=='analysis' and verified(run['result'],run['source_text'] or '') if run['result'] else False
-        return {'source_ready':bool(text),'source_language':source.language if source else None,'history':history}
+        page_data=paginated(history,page,page_size)
+        selected=next((run for run in history if run['id']==run_id),None)
+        if selected and not any(run['id']==run_id for run in page_data['items']):page_data['items'].append(selected)
+        return {'source_ready':bool(text),'source_language':source.language if source else None,'history':page_data['items'],'paging':{key:value for key,value in page_data.items() if key!='items'}}
 
 
 @router.post('/works/{work_id}/research',status_code=202)

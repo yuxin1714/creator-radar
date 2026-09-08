@@ -10,6 +10,7 @@ from app.models.work import Work, WorkMetadata, Transcript, Analysis, utcnow
 from app.services.creator_monitor import add_creator, check_creator
 from app.services.link_validation import LinkError
 from app.providers.base import ProviderError
+from app.services.pagination import paginated
 
 router=APIRouter(prefix='/api/v1',tags=['creators'])
 
@@ -74,13 +75,18 @@ def start_creator_check(creator_id:str,background_tasks:BackgroundTasks):
 
 
 @router.get('/feed')
-def list_feed(creator_id:str|None=None,today:bool=False):
+def list_feed(creator_id:str|None=None,today:bool=False,page:int|None=None,page_size:int=20,q:str='',status:str='all',days:int=0,sort:str='published'):
     with SessionLocal() as db:
         query=select(CreatorWork,Creator,Work,WorkMetadata).join(Creator,Creator.id==CreatorWork.creator_id).join(Work,Work.id==CreatorWork.work_id).outerjoin(WorkMetadata,WorkMetadata.work_id==Work.id).where(Creator.owner_id=='local-user',Work.owner_id=='local-user')
         if creator_id:query=query.where(Creator.id==creator_id)
         if today:query=query.where(CreatorWork.discovered_at>=utcnow()-timedelta(days=1))
-        rows=db.execute(query.order_by(WorkMetadata.published_at.desc().nullslast(),CreatorWork.discovered_at.desc(),Work.id).limit(200)).all()
+        if days>0:query=query.where(WorkMetadata.published_at>=utcnow()-timedelta(days=min(days,3650)))
+        ordering=(CreatorWork.discovered_at.desc(),Work.id) if sort=='collected' else (WorkMetadata.published_at.desc().nullslast(),CreatorWork.discovered_at.desc(),Work.id)
+        rows=db.execute(query.order_by(*ordering)).all()
         analyses={a.work_id:a for a in db.scalars(select(Analysis).where(Analysis.owner_id=='local-user',Analysis.work_id.in_([row[2].id for row in rows])))}
-        return [{'id':work.id,'title':work.title or work.external_id,'creator_id':creator.id,'creator_name':creator.name,
+        items=[{'id':work.id,'title':work.title or work.external_id,'creator_id':creator.id,'creator_name':creator.name,
                  'discovered_at':link.discovered_at,'published_at':metadata.published_at if metadata else None,
                  'source_url':work.source_url,'platform':work.platform,'analysis_status':analyses[work.id].status if work.id in analyses else 'NOT_STARTED'} for link,creator,work,metadata in rows]
+        creators=[{'id':item.id,'name':item.name} for item in db.scalars(select(Creator).where(Creator.owner_id=='local-user').order_by(Creator.name))]
+        items=[item for item in items if (status=='all' or item['analysis_status']==status) and q.strip().lower() in (item['title']+' '+item['creator_name']).lower()]
+        return paginated(items,page,page_size,creators=creators) if page is not None else items[:200]

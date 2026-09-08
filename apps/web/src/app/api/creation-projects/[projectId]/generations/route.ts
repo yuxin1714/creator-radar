@@ -3,6 +3,7 @@ export async function GET(request:Request,{params}:{params:Promise<{projectId:st
   const {projectId}=await params;
   const query=new URLSearchParams(),id=new URL(request.url).searchParams.get("generation_id");
   if(id)query.set("generation_id",id);
+  for(const key of ["page","page_size"])if(new URL(request.url).searchParams.has(key))query.set(key,new URL(request.url).searchParams.get(key)!);
   try{
     const r=await fetch((process.env.API_INTERNAL_BASE_URL??"http://127.0.0.1:8000")+`/api/v1/creation-projects/${encodeURIComponent(projectId)}/generations?${query}`,{cache:"no-store",signal:AbortSignal.timeout(10000)});
     return NextResponse.json(await r.json(),{status:r.status});
