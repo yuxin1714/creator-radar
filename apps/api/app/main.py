@@ -246,11 +246,9 @@ def start_work_transcript(work_id: str, background_tasks: BackgroundTasks):
 
 @app.get("/api/v1/tasks", tags=["tasks"])
 def list_tasks():
+    from app.services.task_overview import task_overview
     with SessionLocal() as db:
-        rows = db.execute(select(Task, Work).join(Work, Work.id == Task.work_id).where(Task.owner_id == "local-user").order_by(Task.created_at.desc())).all()
-        return [{"id": task.id, "work_id": work.id, "platform": work.platform, "external_id": work.external_id,
-                 "stage": task.stage, "status": task.status, "error_summary": task.error_summary,
-                 "created_at": task.created_at.isoformat()} for task, work in rows]
+        return task_overview(db)
 
 @app.get("/api/v1/providers/status", tags=["providers"])
 def get_provider_status():
