@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 export async function POST(request:Request,{params}:{params:Promise<{projectId:string}>}) {
   const origin=request.headers.get("origin");
-  if(origin&&origin!==new URL(request.url).origin)return NextResponse.json({message:"请求来源无效。"},{status:403});
+  // Next may normalize request.url to localhost while the browser uses 127.0.0.1.
+  const host=request.headers.get("host")||new URL(request.url).host;
+  if(origin&&origin!==`${new URL(request.url).protocol}//${host}`)return NextResponse.json({message:"请求来源无效。"},{status:403});
   const {projectId}=await params;
   let options;
   try { const text=await request.text(); options=text?JSON.parse(text):{}; }
