@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { LocalSettings } from "@/components/local-settings";
+import { CreatorImport } from "@/components/creator-import";
+import { CreationSpace } from "@/components/creation-space";
 import { DailyBrief } from "@/components/daily-brief";
 import { PlaybookRouting } from "@/components/playbook-matching";
 import { RegisterPlaybook } from "@/components/register-playbook";
@@ -21,6 +24,7 @@ const icons = [Radar, Rss, Users, FolderOpen, FileText, Workflow, Settings2];
 const AddContext = createContext<() => void>(() => {});
 
 function AddDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogElement | null> }) {
+  const [mode,setMode]=useState<"work"|"creator">("work");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -36,6 +40,7 @@ function AddDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogElement
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!text.trim() || busy) return;
+    if (/https:\/\/(?:www\.)?(?:iesdouyin|douyin)\.com\/(?:share\/)?user\//i.test(text)) { setMode("creator"); return; }
     const run = ++generation.current;
     abortRef.current = new AbortController();
     setBusy(true); setError(""); setImported(""); setResult(null);
@@ -62,8 +67,8 @@ function AddDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogElement
   }
   return <dialog ref={dialogRef} className="add-dialog" aria-labelledby="add-title" onCancel={resetRequest} onClose={resetRequest}>
     <div className="dialog-top"><div className="icon-box"><Link2 size={22} /></div><Button variant="ghost" aria-label="关闭添加窗口" onClick={() => dialogRef.current?.close()}><X size={20} /></Button></div>
-    <p className="eyebrow">ADD TO YOUR RADAR</p><h2 id="add-title">从一条作品链接开始</h2>
-    <p className="dialog-description">粘贴作品地址或分享文字，先确认平台与作品标识。</p>
+    <p className="eyebrow">ADD TO YOUR RADAR</p><h2 id="add-title">{mode==="work"?"添加参考作品":"添加对标创作者"}</h2><div className="add-kind"><Button variant={mode==="work"?"default":"outline"} onClick={()=>{resetRequest();setMode("work")}}>作品链接</Button><Button variant={mode==="creator"?"default":"outline"} onClick={()=>{resetRequest();setMode("creator")}}>创作者主页</Button></div>
+    {mode==="creator"?<CreatorImport initialText={text}/>:<><p className="dialog-description">粘贴作品地址或分享文字，先确认平台与作品标识。</p>
     <form onSubmit={submit}>
       <label htmlFor="work-link">作品链接</label>
       <textarea autoFocus id="work-link" placeholder="粘贴抖音、TikTok 或 YouTube 作品链接…" value={text} maxLength={4000} disabled={busy} onChange={event => { setText(event.target.value); setResult(null); setError(""); setImported(""); }} rows={4} aria-describedby="link-help" />
@@ -80,7 +85,7 @@ function AddDialog({ dialogRef }: { dialogRef: React.RefObject<HTMLDialogElement
       </div>
       <div className="scope-note"><ShieldCheck size={17} /><span>验证会访问平台网页并安全跟随短链接；确认后才保存作品。不会下载媒体或产生第三方 API 费用。</span></div>
       <div className="dialog-actions"><Button variant="outline" type="button" onClick={() => dialogRef.current?.close()}>关闭</Button><Button type="submit" disabled={busy || !text.trim()}>{busy ? <LoaderCircle className="spin" size={16} /> : <Link2 size={16} />}{busy ? "正在处理…" : error ? "重新验证" : "验证作品链接"}</Button></div>
-    </form>
+    </form></>}
   </dialog>;
 }
 
@@ -129,15 +134,14 @@ function useCollection<T>(url:string) {
   useEffect(()=>{ let active=true; const load=async()=>{setLoading(true);try{const r=await fetch(url,{cache:"no-store"});const d=await r.json();if(!r.ok)throw new Error(d.message);if(active){setItems(d);setError("");}}catch(e){if(active)setError(e instanceof Error?e.message:"读取失败");}finally{if(active)setLoading(false);}};load();window.addEventListener("creator-radar:refresh",load);return()=>{active=false;window.removeEventListener("creator-radar:refresh",load)};},[url]);
   return {items,loading,error};
 }
-function CreationPanel(){const [items,setItems]=useState<Array<{id:string;title:string;output_language:string;idea:string|null;status:string;updated_at:string}>>([]),[title,setTitle]=useState(""),[idea,setIdea]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState("");const load=()=>fetch("/api/creation-projects",{cache:"no-store"}).then(r=>r.json()).then(setItems).catch(()=>setMessage("暂时无法读取创作项目。"));useEffect(()=>{load()},[]);async function create(){if(!title.trim())return;setBusy(true);setMessage("");try{const r=await fetch("/api/creation-projects",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({title,idea:idea||null})});const d=await r.json();if(!r.ok)throw new Error(d.message);setTitle("");setIdea("");setMessage("草稿项目已创建。");load()}catch(e){setMessage(e instanceof Error?e.message:"无法创建项目。")}finally{setBusy(false)}}return <><section className="panel"><div className="section-heading"><div><h2>创作空间</h2><p>保存自己的想法和草稿，不与外部参考作品混淆。</p></div><span className="neutral-label">草稿模式</span></div><div className="creation-form"><input aria-label="项目标题" placeholder="项目标题" value={title} onChange={e=>setTitle(e.target.value)}/><textarea aria-label="创作想法" placeholder="先记录一个想法（可选）" value={idea} onChange={e=>setIdea(e.target.value)}/><Button disabled={busy||!title.trim()} onClick={create}>{busy?<LoaderCircle className="spin" size={15}/>:<Plus size={15}/>}新建草稿</Button>{message&&<p className="provider-message">{message}</p>}</div></section>{items.length?<section className="panel"><div className="section-heading"><div><h2>最近项目 <span className="neutral-label">{items.length}</span></h2></div></div><div className="data-list">{items.map(item=><div className="data-row creation-row" key={item.id}><div><Link href={`/creation/${item.id}`}><strong>{item.title}</strong></Link><span>{item.idea||"尚未记录内容"}</span></div><span>{({"zh-CN":"中文",en:"English","zh-en":"中英双语"} as Record<string,string>)[item.output_language]||item.output_language}</span><span>{item.status}</span><span>{new Date(item.updated_at).toLocaleDateString("zh-CN")}</span></div>)}</div></section>:null}</>}
 function CustomPlaybookForm({onCreated}:{onCreated:()=>void}){const [name,setName]=useState(""),[description,setDescription]=useState(""),[rules,setRules]=useState(""),[busy,setBusy]=useState(false),[message,setMessage]=useState("");async function create(){if(!name.trim())return;setBusy(true);try{const r=await fetch("/api/playbooks",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name,description,rules:rules.split("\n").map(x=>x.trim()).filter(Boolean)})});const d=await r.json();if(!r.ok)throw new Error(d.message);setName("");setDescription("");setRules("");setMessage("自定义 Skill 已添加。");onCreated()}catch(e){setMessage(e instanceof Error?e.message:"添加失败。")}finally{setBusy(false)}}return <section className="panel skill-create"><div className="section-heading"><div><h2>添加自定义 Skill</h2><p>把你的创作方法论保存为可复用 Playbook。</p></div></div><div className="creation-form"><input aria-label="Skill 名称" placeholder="名称" value={name} onChange={e=>setName(e.target.value)}/><input aria-label="Skill 描述" placeholder="适用场景或说明" value={description} onChange={e=>setDescription(e.target.value)}/><textarea aria-label="Skill 规则" placeholder="每行一条规则" value={rules} onChange={e=>setRules(e.target.value)}/><Button disabled={busy||!name.trim()} onClick={create}>{busy?<LoaderCircle className="spin" size={15}/>:<Plus size={15}/>}添加 Skill</Button>{message&&<p className="provider-message">{message}</p>}</div></section>}
-function SettingsPanel(){const [skills,setSkills]=useState<Array<{id:string;name:string;status:string;source_type:string;repository_url:string|null;revision:string|null;synced_at:string}>>([]),[message,setMessage]=useState(""),[syncing,setSyncing]=useState("");const load=()=>fetch("/api/playbooks?include_inactive=true",{cache:"no-store"}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.message);return d}).then(setSkills).catch(()=>setMessage("暂时无法读取创作 Skill。"));useEffect(()=>{load()},[]);async function sync(id:string){setSyncing(id);setMessage("");try{const r=await fetch(`/api/playbooks/${id}/sync`,{method:"POST"}),d=await r.json();if(!r.ok)throw new Error(d.message);setMessage(d.updated?"已同步到最新版本。":"已经是最新版本。");load()}catch(e){setMessage(e instanceof Error?e.message:"同步失败。 ")}finally{setSyncing("")}}return <><section className="panel settings-panel"><h2>当前工作台</h2><dl><div><dt>运行方式</dt><dd>本机开发预览 · 不用于公网</dd></div><div><dt>账户与持久化</dt><dd>PostgreSQL 本机数据 · 单一 local-user</dd></div><div><dt>第三方凭证</dt><dd>仅在后端 .env 配置，不在页面填写或展示</dd></div></dl></section><CustomPlaybookForm onCreated={load}/><RegisterPlaybook onCreated={load}/><section className="panel skill-settings"><div className="section-heading"><div><h2>创作 Skill 管理</h2><p>远程 Skill 同步后，新项目可选择最新版本；历史项目保留原版本。</p>{message&&<p className="provider-message">{message}</p>}</div></div>{skills.map(skill=><div className="skill-row" key={skill.id}><div><strong>{skill.name}</strong><span>{skill.repository_url||"本机自定义 Skill"}</span><small>版本 {skill.revision?.slice(0,8)} · 上次同步 {new Date(skill.synced_at).toLocaleString("zh-CN")}</small></div><PlaybookRouting id={skill.id}/><PlaybookToggle id={skill.id} name={skill.name} enabled={skill.status==="ACTIVE"} onChanged={load}/>{skill.source_type==="custom"&&<EditPlaybook id={skill.id} onSaved={load}/>} {skill.repository_url&&<Button variant="outline" disabled={syncing===skill.id} onClick={()=>sync(skill.id)}>{syncing===skill.id?<LoaderCircle className="spin" size={14}/>:null}同步</Button>}</div>)}</section></>}
+function SettingsPanel(){const [skills,setSkills]=useState<Array<{id:string;name:string;status:string;source_type:string;repository_url:string|null;revision:string|null;synced_at:string}>>([]),[message,setMessage]=useState(""),[syncing,setSyncing]=useState("");const load=()=>fetch("/api/playbooks?include_inactive=true",{cache:"no-store"}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.message);return d}).then(setSkills).catch(()=>setMessage("暂时无法读取创作 Skill。"));useEffect(()=>{load()},[]);async function sync(id:string){setSyncing(id);setMessage("");try{const r=await fetch(`/api/playbooks/${id}/sync`,{method:"POST"}),d=await r.json();if(!r.ok)throw new Error(d.message);setMessage(d.updated?"已同步到最新版本。":"已经是最新版本。");load()}catch(e){setMessage(e instanceof Error?e.message:"同步失败。 ")}finally{setSyncing("")}}return <><section className="panel settings-panel"><h2>当前工作台</h2><dl><div><dt>运行方式</dt><dd>本机开发预览 · 不用于公网</dd></div><div><dt>数据保存</dt><dd>当前电脑的本地数据库 · 已保存内容可备份</dd></div><div><dt>第三方凭证</dt><dd>在本机后端配置，页面不展示密钥</dd></div></dl></section><LocalSettings/><CustomPlaybookForm onCreated={load}/><RegisterPlaybook onCreated={load}/><section className="panel skill-settings"><div className="section-heading"><div><h2>创作 Skill 管理</h2><p>同步后，后续生成使用最新版本；已有生成记录保留当时版本，已生成方向沿用当时配置。</p>{message&&<p className="provider-message">{message}</p>}</div></div>{skills.map(skill=><div className="skill-row" key={skill.id}><div><strong>{skill.name}</strong><span>{skill.repository_url||"本机自定义 Skill"}</span><small>版本 {skill.revision?.slice(0,8)} · 上次同步 {new Date(skill.synced_at).toLocaleString("zh-CN")}</small></div><PlaybookRouting id={skill.id}/><PlaybookToggle id={skill.id} name={skill.name} enabled={skill.status==="ACTIVE"} onChanged={load}/>{skill.source_type==="custom"&&<EditPlaybook id={skill.id} onSaved={load}/>} {skill.repository_url&&<Button variant="outline" disabled={syncing===skill.id} onClick={()=>sync(skill.id)}>{syncing===skill.id?<LoaderCircle className="spin" size={14}/>:null}同步</Button>}</div>)}</section></>}
 
 export function WorkspacePage({ section }: { section: string }) {
   const add = useContext(AddContext);
   return <><Heading section={section} />
     {section === "today" ? <DailyBrief/> : section === "works" ? <WorkLibrary />
-    : section === "creation" ? <CreationPanel />
+    : section === "creation" ? <CreationSpace />
     : section === "tasks" ? <TaskCenter />
     : section === "settings" ? <SettingsPanel />
     : section === "creators" ? <CreatorMonitor/>

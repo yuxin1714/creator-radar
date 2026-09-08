@@ -45,7 +45,8 @@ def provider_get(settings, endpoint, params):
             payload=json.load(response)
     except HTTPError as error:
         reason = '上游作品数据暂不可用，请稍后重试或联系 TikHub 支持。' if error.code == 400 else '请检查 TikHub 套餐或余额。' if error.code == 402 else '请检查 TikHub 权限。' if error.code in (401,403) else '请稍后重试。'
-        raise ProviderError('creator_provider_error', f'创作者数据接口返回 HTTP {error.code}，{reason}') from error
+        code='provider_payment_required' if error.code==402 else 'provider_auth_failed' if error.code in (401,403) else 'creator_provider_error'
+        raise ProviderError(code, f'创作者数据接口返回 HTTP {error.code}，{reason}') from error
     except (URLError, TimeoutError, ValueError) as error:
         raise ProviderError('creator_provider_error', '无法读取创作者数据，请稍后重试。') from error
     data=payload.get('data')
@@ -77,7 +78,7 @@ def add_creator(text, daily, settings):
 def check_creator(creator_id, settings, scheduled=False):
     with SessionLocal() as db:
         query=select(Creator).where(Creator.id==creator_id,Creator.owner_id=='local-user')
-        if scheduled:query=query.where(Creator.daily.is_(True),Creator.next_check_at<=utcnow())
+        if scheduled:query=query.where(Creator.daily.is_(True),Creator.next_check_at<=utcnow(),Creator.status!='BLOCKED')
         item=db.scalar(query.with_for_update())
         if not item or item.status=='PROCESSING':return
         first=item.last_checked_at is None
@@ -128,14 +129,14 @@ def check_creator(creator_id, settings, scheduled=False):
     except Exception as error:
         with SessionLocal() as db:
             item=db.get(Creator,creator_id)
-            item.status='FAILED';item.last_new_count=new_count
+            item.status='BLOCKED' if isinstance(error,ProviderError) and error.code in ('provider_payment_required','provider_auth_failed') else 'FAILED';item.last_new_count=new_count
             item.error_summary=str(error)[:500] if isinstance(error,ProviderError) else '检查更新失败，请稍后重试。'
             db.commit()
 
 
 def check_due(settings):
     with SessionLocal() as db:
-        ids=list(db.scalars(select(Creator.id).where(Creator.owner_id=='local-user',Creator.daily.is_(True),Creator.next_check_at<=utcnow(),Creator.status!='PROCESSING')))
+        ids=list(db.scalars(select(Creator.id).where(Creator.owner_id=='local-user',Creator.daily.is_(True),Creator.next_check_at<=utcnow(),Creator.status.notin_(['PROCESSING','BLOCKED']))))
     for creator_id in ids:check_creator(creator_id,settings,scheduled=True)
 
 

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime,timezone
 import json
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse, Response
@@ -28,6 +29,7 @@ from app.models.work_preferences import WorkPreferences
 from app.services.work_preferences import preferences_json, save_preferences, PreferencesInput
 from app.services.playbook_registration import RemotePlaybookInput, register_remote
 from app.services.playbook_matching import PlaybookRouting, MatchingInput, criteria_for, recommend_playbooks
+from app.services.local_preferences import LocalPreference, LocalPreferenceInput, local_preferences
 
 settings = Settings()
 
@@ -64,6 +66,7 @@ class ImportInput(BaseModel):
     normalized_url: str = Field(min_length=10, max_length=2000)
     availability_checked: bool
 class CreationInput(BaseModel):
+    expected_updated_at: datetime | None = None
     work_id: str | None = Field(default=None, max_length=36)
     output_language: str = Field(default="zh-CN", max_length=20)
     title: str = Field(default="未命名创作", min_length=1, max_length=200)
@@ -138,6 +141,23 @@ def creation_json(item: CreationProject, brief: CreationBrief | None):
         generation_input = db.get(GenerationInput, generation.id) if generation else None
     return {"id": item.id, "work_id": item.work_id, "context_type": item.context_type, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision, "mode": generation_input.mode if generation_input else "draft"}}
 
+@app.get("/api/v1/settings", tags=["settings"])
+def get_local_preferences():
+    with SessionLocal() as db:return local_preferences(db)
+
+@app.patch("/api/v1/settings", tags=["settings"])
+def update_local_preferences(body:LocalPreferenceInput):
+    with SessionLocal() as db:
+        item=db.scalar(select(LocalPreference).where(LocalPreference.owner_id=='local-user').with_for_update())
+        if (item.revision if item else 0)!=body.expected_revision:return JSONResponse(status_code=409,content={'message':'设置已在其他页面更新，请刷新后重试。'})
+        item=item or LocalPreference(owner_id='local-user',revision=0)
+        item.values=body.model_dump(exclude={'expected_revision'});item.revision+=1
+        db.add(item)
+        try:db.commit()
+        except IntegrityError:
+            db.rollback();return JSONResponse(status_code=409,content={'message':'设置已被另一页面初始化，请刷新后重试。'})
+        return local_preferences(db)
+
 @app.get("/api/v1/today", tags=["insights"])
 def get_today():
     from app.services.daily_brief import daily_brief
@@ -191,7 +211,10 @@ def list_works():
     with SessionLocal() as db:
         works = db.scalars(select(Work).where(Work.owner_id == "local-user").order_by(Work.created_at.desc())).all()
         preferences={item.work_id:item for item in db.scalars(select(WorkPreferences).join(Work,Work.id==WorkPreferences.work_id).where(Work.owner_id=='local-user'))}
-        return [{**work_json(item), "metadata": metadata_json(db.get(WorkMetadata, item.id)), "preferences": preferences_json(preferences.get(item.id))} for item in works]
+        transcripts={item.work_id:item.status for item in db.scalars(select(Transcript).where(Transcript.owner_id=='local-user',Transcript.kind=='SOURCE'))}
+        analyses={item.work_id:item.status for item in db.scalars(select(Analysis).where(Analysis.owner_id=='local-user'))}
+        metadata={item.work_id:item for item in db.scalars(select(WorkMetadata).join(Work,Work.id==WorkMetadata.work_id).where(Work.owner_id=='local-user'))}
+        return [{**work_json(item), "metadata": metadata_json(metadata.get(item.id)), "preferences": preferences_json(preferences.get(item.id)), "transcript_status":transcripts.get(item.id,'NOT_STARTED'),"analysis_status":analyses.get(item.id,'NOT_STARTED')} for item in works]
 
 @app.get("/api/v1/works/{work_id}", tags=["works"])
 def get_work(work_id: str):
@@ -371,6 +394,9 @@ def list_creation_projects():
 @app.post("/api/v1/creation-projects", status_code=201, tags=["creation"])
 def create_creation_project(body: CreationInput):
     with SessionLocal() as db:
+        defaults=local_preferences(db)
+        if 'output_language' not in body.model_fields_set:body.output_language=defaults['default_output_language']
+        if 'platform' not in body.model_fields_set:body.platform=defaults['default_platform']
         if body.work_id and not db.scalar(select(Work).where(Work.id == body.work_id, Work.owner_id == "local-user")):
             return JSONResponse(status_code=404, content={"code": "work_not_found", "message": "参考作品不存在或不可访问。"})
         item = CreationProject(title=body.title, idea=body.idea, body=body.body, output_language=body.output_language, work_id=body.work_id, context_type="work" if body.work_id else "idea")
@@ -391,6 +417,10 @@ def update_creation_project(project_id: str, body: CreationInput):
         item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user").with_for_update())
         if not item:
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
+        if body.expected_updated_at is not None:
+            normalize=lambda date:date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date.astimezone(timezone.utc)
+            if normalize(body.expected_updated_at)!=normalize(item.updated_at):
+                return JSONResponse(status_code=409,content={'message':'草稿已在其他页面更新，当前修改未覆盖服务器版本。请先导出或复制当前正文，再刷新合并。'})
         record_version(db, item, db.get(CreationBrief, item.id))
         item.title, item.idea, item.body, item.output_language = body.title, body.idea, body.body, body.output_language
         brief = db.get(CreationBrief, item.id) or CreationBrief(project_id=item.id)

@@ -11,6 +11,24 @@ from app.services.creation_generation import reference_context
 
 
 class CreationApiTests(unittest.TestCase):
+    def test_stale_browser_save_does_not_overwrite_newer_draft(self):
+        from datetime import datetime
+        created=main.create_creation_project(main.CreationInput(title='Original',body='Original'))
+        main.update_creation_project(created['id'],main.CreationInput(title='Newer',body='Newer'))
+        response=main.update_creation_project(created['id'],main.CreationInput(title='Stale',body='Stale',expected_updated_at=datetime.fromisoformat(created['updated_at'])))
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(main.get_creation_project(created['id'])['body'],'Newer')
+
+    def test_local_defaults_only_apply_to_new_unspecified_projects(self):
+        original=main.create_creation_project(main.CreationInput(title='Existing'))
+        prefs=main.update_local_preferences(main.LocalPreferenceInput(default_output_language='en',default_platform='xiaohongshu'))
+        created=main.create_creation_project(main.CreationInput(title='Defaults'))
+        explicit=main.create_creation_project(main.CreationInput(title='Explicit',output_language='zh-en',platform='douyin'))
+        self.assertEqual(created['output_language'],'en');self.assertEqual(created['brief']['platform'],'xiaohongshu')
+        self.assertEqual(explicit['output_language'],'zh-en');self.assertEqual(explicit['brief']['platform'],'douyin')
+        self.assertEqual(main.get_creation_project(original['id'])['output_language'],'zh-CN')
+        self.assertEqual(main.update_local_preferences(main.LocalPreferenceInput(expected_revision=prefs['revision']-1)).status_code,409)
+
     def test_generation_history_is_scoped_and_excludes_prompt_context(self):
         from app.models.work import CreationProject, CreationGeneration, GenerationInput
         created=main.create_creation_project(main.CreationInput(title="History"))

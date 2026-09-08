@@ -12,6 +12,15 @@ from app import creator_routes
 
 
 class CreatorMonitorTests(unittest.TestCase):
+    def test_payment_failure_blocks_automatic_retry_until_manual_check(self):
+        from app.models.work import utcnow
+        with patch.object(monitor,'provider_get',side_effect=ProviderError('provider_payment_required','Payment required')):
+            monitor.check_creator(self.cid,Settings())
+        with self.sessions() as db:
+            item=db.get(Creator,self.cid);self.assertEqual(item.status,'BLOCKED');item.next_check_at=utcnow();db.commit()
+        with patch.object(monitor,'provider_get',return_value=self.posts) as provider:
+            monitor.check_due(Settings());provider.assert_not_called()
+            monitor.check_creator(self.cid,Settings());provider.assert_called_once()
     def setUp(self):
         self.engine=create_engine('sqlite://');Base.metadata.create_all(self.engine)
         self.sessions=sessionmaker(self.engine,expire_on_commit=False)

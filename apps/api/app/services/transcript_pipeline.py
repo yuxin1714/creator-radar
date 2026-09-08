@@ -19,7 +19,7 @@ def transcript_state(work: Work, settings: Settings):
         if existing: return {"availability": "READY" if existing.status == "COMPLETED" else existing.status, "transcript": transcript_json(existing), "action": None}
     if work.platform == "youtube":
         return {"availability": "PLATFORM_CAPTIONS", "transcript": None, "action": "FETCH_CAPTIONS",
-                "message": "可检查 YouTube 已有字幕；检查和获取可能分别产生 TikHub 请求费用。"}
+                "message": "YouTube 平台字幕获取入口尚未接通，当前页面不能直接获取字幕。"}
     if settings.asr_provider == "local_faster_whisper" and settings.asr_model_path:
         return {"availability": "ASR_AVAILABLE", "transcript": None, "action": "TRANSCRIBE",
                 "message": "已配置本地 GPU 转写。开始后会获取媒体文件，并在本机生成逐字稿。"}

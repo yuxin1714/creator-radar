@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";
+async function proxy(request:Request){try{const r=await fetch((process.env.API_INTERNAL_BASE_URL??'http://127.0.0.1:8000')+'/api/v1/settings',{method:request.method,headers:{'content-type':'application/json'},body:request.method==='PATCH'?JSON.stringify(await request.json()):undefined,cache:'no-store',signal:AbortSignal.timeout(10000)});const d=await r.json();return NextResponse.json(r.ok?d:{message:d.message||'设置格式无效。'},{status:r.status})}catch{return NextResponse.json({message:'暂时无法读取或保存本地设置。'},{status:503})}}
+export const GET=proxy;export const PATCH=proxy;
