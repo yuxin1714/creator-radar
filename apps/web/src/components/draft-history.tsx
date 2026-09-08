@@ -1,4 +1,5 @@
 "use client";
+import { DraftPreview } from "@/components/draft-preview";
 
 import { useEffect, useState } from "react";
 import { RotateCcw } from "lucide-react";
@@ -38,7 +39,7 @@ export function DraftHistory({ projectId, refresh, onLoad }: { projectId: string
         <label>最近 50 个版本<select value={selected} onChange={event => setSelected(event.target.value)}>
           {versions.map(version => <option key={version.id} value={version.id}>V{version.version_number} · {new Date(version.created_at).toLocaleString("zh-CN")}</option>)}
         </select></label>
-        {version && <div className="history-preview"><h3>{version.snapshot.title}</h3><p>{version.snapshot.idea}</p><pre>{version.snapshot.body || "（正文为空）"}</pre>
+        {version && <div className="history-preview"><h3>{version.snapshot.title}</h3><p>{version.snapshot.idea}</p><DraftPreview content={version.snapshot.body || "（正文为空）"}/>
           <Button variant="outline" onClick={() => onLoad(version.snapshot)}><RotateCcw size={15} />载入此版本</Button>
         </div>}
       </>}

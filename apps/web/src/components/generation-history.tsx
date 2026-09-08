@@ -1,4 +1,5 @@
 "use client";
+import { DraftPreview } from "@/components/draft-preview";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CreationDirections } from "@/components/creation-directions";
@@ -24,5 +25,5 @@ export function GenerationHistory({projectId,refresh,disabled,onAdopt,onChoose}:
   void load();return()=>controller.abort();
  },[projectId,open,refresh]);
  const item=items.find(i=>i.id===selected);
- return <details className="draft-history" open={open} onToggle={e=>setOpen(e.currentTarget.open)}><summary>生成历史</summary>{loading?<p>正在读取生成记录…</p>:error?<p role="alert">{error}</p>:!items.length?<p>暂无生成记录。</p>:<><label>最近 50 次生成<select aria-label="生成记录" value={selected} onChange={e=>setSelected(e.target.value)}>{items.map(i=><option key={i.id} value={i.id}>{new Date(i.created_at).toLocaleString('zh-CN')} · {modes[i.mode]||i.mode} · {i.status==='COMPLETED'?'完成':i.status==='FAILED'?'失败':'处理中'}</option>)}</select></label>{item&&<div className="history-preview"><p>Skill {item.playbook_id} · {item.playbook_revision||'版本未记录'}</p>{item.error_summary&&<p role="alert">{item.error_summary}</p>}{item.status==='COMPLETED'&&item.content&&(item.mode==='directions'?<CreationDirections content={item.content} disabled={disabled} onChoose={index=>onChoose(item.id,index)}/>:<><pre>{item.content}</pre><Button variant="outline" disabled={disabled} onClick={()=>onAdopt(item.content!)}>载入此生成稿</Button><p>载入仅替换编辑器，保存后写入草稿版本。</p></>)}</div>}</>}</details>;
+ return <details className="draft-history" open={open} onToggle={e=>setOpen(e.currentTarget.open)}><summary>生成历史</summary>{loading?<p>正在读取生成记录…</p>:error?<p role="alert">{error}</p>:!items.length?<p>暂无生成记录。</p>:<><label>最近 50 次生成<select aria-label="生成记录" value={selected} onChange={e=>setSelected(e.target.value)}>{items.map(i=><option key={i.id} value={i.id}>{new Date(i.created_at).toLocaleString('zh-CN')} · {modes[i.mode]||i.mode} · {i.status==='COMPLETED'?'完成':i.status==='FAILED'?'失败':'处理中'}</option>)}</select></label>{item&&<div className="history-preview"><p>Skill {item.playbook_id} · {item.playbook_revision||'版本未记录'}</p>{item.error_summary&&<p role="alert">{item.error_summary}</p>}{item.status==='COMPLETED'&&item.content&&(item.mode==='directions'?<CreationDirections content={item.content} disabled={disabled} onChoose={index=>onChoose(item.id,index)}/>:<><DraftPreview content={item.content}/><Button variant="outline" disabled={disabled} onClick={()=>onAdopt(item.content!)}>载入此生成稿</Button><p>载入仅替换编辑器，保存后写入草稿版本。</p></>)}</div>}</>}</details>;
 }
