@@ -31,6 +31,8 @@ from app.services.playbook_registration import RemotePlaybookInput, register_rem
 from app.services.playbook_matching import PlaybookRouting, MatchingInput, criteria_for, recommend_playbooks
 from app.services.local_preferences import LocalPreference, LocalPreferenceInput, local_preferences
 from app.services.project_lifecycle import ProjectStatusInput,change_project_status
+from app.research_routes import router as research_router
+from app.models.research import ResearchRun
 
 settings = Settings()
 
@@ -57,6 +59,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
 app.include_router(creator_router)
+app.include_router(research_router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
 class LinkInput(BaseModel):
@@ -290,6 +293,7 @@ def start_work_analysis(work_id: str, background_tasks: BackgroundTasks):
         work = db.scalar(select(Work).where(Work.id == work_id, Work.owner_id == "local-user").with_for_update())
         if not work:
             return JSONResponse(status_code=404, content={"message": "作品不存在。"})
+        if db.scalar(select(ResearchRun.id).where(ResearchRun.work_id==work_id,ResearchRun.owner_id=='local-user',ResearchRun.status.in_(['PENDING','PROCESSING']))):return JSONResponse(status_code=409,content={'message':'此作品已有研究任务，请等待完成。'})
         transcript = db.scalar(select(Transcript).where(Transcript.work_id == work_id, Transcript.owner_id == "local-user", Transcript.kind == "SOURCE"))
         if not transcript or transcript.status != "COMPLETED":
             return JSONResponse(status_code=409, content={"code": "transcript_required", "message": "请先完成原文逐字稿。"})
