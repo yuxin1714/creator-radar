@@ -118,6 +118,13 @@ class CreationGeneration(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
+class GenerationInput(Base):
+    __tablename__ = "generation_inputs"
+    generation_id: Mapped[str] = mapped_column(ForeignKey("creation_generations.id", ondelete="CASCADE"), primary_key=True)
+    mode: Mapped[str] = mapped_column(String(20), default="draft")
+    context: Mapped[dict] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(100))
+
 class PlaybookSource(Base):
     __tablename__ = "playbook_sources"
     id: Mapped[str] = mapped_column(String(80), primary_key=True)

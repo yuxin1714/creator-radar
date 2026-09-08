@@ -19,6 +19,8 @@ from app.services.llm_analysis import configured as analysis_configured, process
 from app.services.remote_playbooks import sync_playbook
 from app.services.creation_generation import generate as generate_creation
 from app.services.creation_playbooks import resolve_playbook
+from app.services.generation_workflow import GenerationOptions, prepare_generation
+from app.models.work import GenerationInput
 from app.services.creation_versions import record_version
 from app.models.work import CreationVersion
 
@@ -115,7 +117,8 @@ def metadata_json(item: WorkMetadata | None):
 def creation_json(item: CreationProject, brief: CreationBrief | None):
     with SessionLocal() as db:
         generation = db.scalar(select(CreationGeneration).where(CreationGeneration.project_id == item.id).order_by(CreationGeneration.created_at.desc()))
-    return {"id": item.id, "work_id": item.work_id, "context_type": item.context_type, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision}}
+        generation_input = db.get(GenerationInput, generation.id) if generation else None
+    return {"id": item.id, "work_id": item.work_id, "context_type": item.context_type, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision, "mode": generation_input.mode if generation_input else "draft"}}
 
 @app.get("/health", tags=["system"])
 def health():
@@ -343,18 +346,18 @@ def list_creation_versions(project_id: str):
         return [{"id": row.id, "version_number": row.version_number, "snapshot": row.snapshot, "created_at": row.created_at.isoformat()} for row in rows]
 
 @app.post("/api/v1/creation-projects/{project_id}/generations", status_code=202, tags=["creation"])
-def start_creation_generation(project_id: str, background_tasks: BackgroundTasks):
-    if not analysis_configured(settings): return JSONResponse(status_code=409, content={"code": "llm_not_configured", "message": "生成模型尚未配置。"})
+def start_creation_generation(project_id: str, background_tasks: BackgroundTasks, options: GenerationOptions | None = None):
+    if not analysis_configured(settings):
+        return JSONResponse(status_code=409, content={"code": "llm_not_configured", "message": "生成模型尚未配置。"})
     with SessionLocal() as db:
-        project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user")); brief = db.get(CreationBrief, project_id)
-        if not project or not brief: return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
         try:
-            revision, _ = resolve_playbook(db, brief.playbook_id)
+            item = prepare_generation(db, project_id, options or GenerationOptions(), settings)
         except ProviderError as error:
-            return JSONResponse(status_code=409, content={"code": error.code, "message": str(error)})
-        item = CreationGeneration(project_id=project_id, playbook_id=brief.playbook_id, playbook_revision=revision); db.add(item); db.commit(); db.refresh(item)
-    background_tasks.add_task(generate_creation, project_id, item.id, settings)
-    return {"message": "创作草稿生成已开始。", "generation_id": item.id}
+            return JSONResponse(status_code=404 if error.code == "project_not_found" else 409, content={"code": error.code, "message": str(error)})
+        db.commit(); db.refresh(item)
+        generation_id = item.id
+    background_tasks.add_task(generate_creation, project_id, generation_id, settings)
+    return {"message": "创作任务已开始。", "generation_id": generation_id}
 
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):
