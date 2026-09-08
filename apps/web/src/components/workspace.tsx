@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CreatorMonitor, CreatorFeed } from "@/components/creator-monitor";
 import { TaskCenter } from "@/components/task-center";
 import { PlaybookToggle } from "@/components/playbook-toggle";
 import { EditPlaybook } from "@/components/edit-playbook";
@@ -115,7 +116,7 @@ function AddButton() {
 }
 function Heading({ section }: { section: string }) {
   const data = sections.find(item => item.slug === section)!;
-  return <div className="page-heading"><div><p className="eyebrow">{section === "today" ? "YOUR DAILY CREATIVE BRIEF" : "YOUR CREATIVE WORKSPACE"}</p><h1>{data.title}</h1><p>{data.description}</p></div><span className="phase-tag">P0 · 作品导入基础</span></div>;
+  return <div className="page-heading"><div><p className="eyebrow">{section === "today" ? "YOUR DAILY CREATIVE BRIEF" : "YOUR CREATIVE WORKSPACE"}</p><h1>{data.title}</h1><p>{data.description}</p></div><span className="phase-tag">P0 · 本地工作台</span></div>;
 }
 
 type WorkItem = { id:string; platform:keyof typeof platformNames; external_id:string; source_url:string; title:string|null; status:string; metadata:{author_name:string|null}|null; created_at:string };
@@ -132,16 +133,12 @@ function SettingsPanel(){const [skills,setSkills]=useState<Array<{id:string;name
 export function WorkspacePage({ section }: { section: string }) {
   const add = useContext(AddContext);
   return <><Heading section={section} />
-    {section === "today" ? <>
-      <section className="welcome-panel"><div className="welcome-copy"><span className="welcome-kicker"><Sparkles size={15} /> 每个好内容，都始于一次发现</span><h2>你的下一次创作，<br />从这里发现。</h2><p>把值得研究的作品带进工作台。<br />先验证一条链接，开始搭建你的内容雷达。</p><AddButton /><span className="welcome-footnote">抖音 / TikTok / YouTube</span></div><div className="radar-illustration" aria-hidden="true"><div className="radar-ring ring-one" /><div className="radar-ring ring-two" /><div className="radar-ring ring-three" /><div className="radar-line" /><span className="radar-center"><Radar size={34} /></span><span className="radar-node node-one"><FileText size={20} /></span><span className="radar-node node-two"><Globe2 size={20} /></span><span className="radar-node node-three"><Sparkles size={20} /></span><span className="radar-caption">DISCOVER · UNDERSTAND · CREATE</span></div></section>
-      <div className="today-grid"><section className="panel"><div className="section-heading"><div><h2>今日精选<span className="neutral-label">尚未生成</span></h2><p>只保留值得你花时间的内容。</p></div><Link className="text-link" href="/feed">查看情报流<ArrowRight size={15} /></Link></div><Empty icon={<Compass size={28} />} title="你的雷达，等待第一条信号" description="接入作品采集与分析后，这里会呈现高价值内容及推荐依据。当前不展示模拟情报。" action={<Button variant="outline" onClick={add}>先验证一条链接<ArrowRight size={15} /></Button>} /></section>
-      <aside className="panel first-steps"><p className="eyebrow">GET STARTED</p><h2>从发现到创作</h2><ol><li className="step-current"><span>01</span><div><strong>添加作品链接</strong><p>识别平台，验证作品地址。</p><button className="text-link" onClick={add}>立即验证<ArrowUpRight size={15} /></button></div></li><li><span>02</span><div><strong>理解内容价值</strong><p>采集、逐字稿与 AI 拆解待接入。</p></div></li><li><span>03</span><div><strong>开始自己的创作</strong><p>中文或英文，保存并继续编辑。</p></div></li></ol><div className="quiet-note"><ShieldCheck size={16} />当前验证不会调用付费服务。</div></aside></div>
-    </> : section === "works" ? <WorksPanel />
+    {section === "today" ? <CreatorFeed today/> : section === "works" ? <WorksPanel />
     : section === "creation" ? <CreationPanel />
     : section === "tasks" ? <TaskCenter />
     : section === "settings" ? <SettingsPanel />
-    : section === "creators" ? <section className="panel"><div className="section-heading"><div><h2>对标创作者</h2><p>持续关注更新，而不只是收藏一个账号。</p></div><span className="neutral-label">导入与监控待接入</span></div><Empty icon={<Users size={28} />} title="你关注的创作者，将在这里汇集" description="本轮只验证作品链接。创作者主页导入、作品获取与抖音监控留待后续开发。" /></section>
-    : <section className="panel"><div className="section-heading"><div><h2>发现内容</h2><p>情报流用于探索，作品库用于管理已收集的内容。</p></div><span className="neutral-label">数据源待接入</span></div><Empty icon={<Rss size={28} />} title="让有价值的内容进入视野" description="平台内容接入后，你可以在这里主动探索作品。现在可以先验证一条已找到的作品链接。" action={<AddButton />} /></section>}
-    <div className="scope-footer"><CircleDot size={14} /><span>当前版本：作品确认导入与元数据任务框架。TikHub 密钥、媒体、分析、创作及账户功能尚未接入。</span></div>
+    : section === "creators" ? <CreatorMonitor/>
+    : <CreatorFeed/>}
+    <div className="scope-footer"><CircleDot size={14} /><span>本地工作台：创作者每日检查、作品收录、逐字稿、分析和 Skill 创作。账户与云端持续运行尚未接入。</span></div>
   </>;
 }

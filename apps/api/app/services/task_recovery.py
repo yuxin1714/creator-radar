@@ -22,8 +22,14 @@ def local_worker_guard(engine):
 
 
 def recover_interrupted(db):
+    from app.models.creator import Creator
     message = "服务重启，上一轮任务已中断。请查看详情后重新发起，原有正文和结果已保留。"
     count = 0
+    for creator in db.scalars(select(Creator).where(Creator.owner_id=='local-user',Creator.status=='PROCESSING')):
+        creator.status='FAILED';creator.error_summary=message
+        from app.models.work import utcnow
+        creator.next_check_at=utcnow()
+        count+=1
     for model in (Task, Transcript, Analysis, CreationGeneration):
         states = ["RUNNING", "PROCESSING"] if model is Task else ["PENDING", "PROCESSING"]
         query = select(model).where(model.status.in_(states))

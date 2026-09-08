@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 type Task = {id:string;kind:string;title:string;stage:string;status:string;error_summary:string|null;created_at:string;href:string};
-const kinds:Record<string,string>={metadata:"元数据采集",transcript:"逐字稿转写",analysis:"内容分析",creation:"创作生成"};
+const kinds:Record<string,string>={monitor:"主页更新检查",metadata:"元数据采集",transcript:"逐字稿转写",analysis:"内容分析",creation:"创作生成"};
 const stages:Record<string,string>={draft:"正文生成",directions:"创作方向",refine:"反馈优化",WAITING_PROVIDER:"等待数据服务",FETCHING_METADATA:"采集元数据",METADATA_READY:"元数据就绪"};
 const statuses:Record<string,string>={PENDING:"待处理",PROCESSING:"处理中",COMPLETED:"完成",FAILED:"失败"};
 export function TaskCenter(){

@@ -23,6 +23,7 @@ from app.services.generation_workflow import GenerationOptions, prepare_generati
 from app.models.work import GenerationInput
 from app.services.creation_versions import record_version
 from app.models.work import CreationVersion
+from app.creator_routes import router as creator_router
 
 settings = Settings()
 
@@ -37,9 +38,18 @@ async def lifespan(app: FastAPI):
             if not db.get(PlaybookSource, "tki-content-creation"):
                 db.add(PlaybookSource(id="tki-content-creation", name="TKI 创作 Skill：故事化产品内容", repository_url="https://github.com/yuxin1714/-.git", skill_path="tki-content-creation/SKILL.md", revision="d2c8a809b6c89d7ac4da179c904f85f5524cd1a8"))
                 db.commit()
-        yield
+        import asyncio
+        from app.services.creator_monitor import monitor_loop
+        monitor=asyncio.create_task(monitor_loop(settings))
+        try:
+            yield
+        finally:
+            monitor.cancel()
+            try:await monitor
+            except asyncio.CancelledError:pass
 
 app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
+app.include_router(creator_router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
 class LinkInput(BaseModel):
