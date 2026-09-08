@@ -43,7 +43,7 @@ services:
   worker:
     profiles: ["app"]
     build: ./apps/api
-    command: ["celery", "-A", "app.worker:celery_app", "worker", "--loglevel=info"]
+    command: ["celery", "-A", "app.worker:celery_app", "worker", "--pool=solo", "--concurrency=1", "--loglevel=info"]
     environment: *api-environment
     depends_on:
       postgres:

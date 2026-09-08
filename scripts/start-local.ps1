@@ -50,6 +50,20 @@ try {
         if ($health.service -ne 'creator-radar-api') { throw 'The API port is serving an unexpected application.' }
         # Verify database-backed routes, not just the process health endpoint.
         Wait-LocalUrl 'http://127.0.0.1:8000/api/v1/works' 15
+        $workers = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -and $_.CommandLine -match [regex]::Escape($pythonPath) -and $_.CommandLine -match 'celery.*app.worker:celery_app.*worker' })
+        if (!$workers.Count) {
+            Start-Process -FilePath $pythonPath -ArgumentList '-m celery -A app.worker:celery_app worker --pool=solo --concurrency=1 --loglevel=warning' -WorkingDirectory $apiDirectory -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'worker-out.log') -RedirectStandardError (Join-Path $logDirectory 'worker-error.log') | Out-Null
+        }
+        $queueReady = $false
+        $queueDeadline = (Get-Date).AddSeconds(45)
+        do {
+            try {
+                $queue = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/v1/queue/status' -TimeoutSec 5
+                $queueReady = $queue.worker_ready -and $queue.broker_ready
+            } catch {}
+            if (!$queueReady) { Start-Sleep -Seconds 1 }
+        } while (!$queueReady -and (Get-Date) -lt $queueDeadline)
+        if (!$queueReady) { throw 'Background worker did not become ready. Check data\logs\worker-error.log. Queued requests are preserved.' }
         if (!(Test-ProjectListener 3000 'next')) {
             Start-Process -FilePath 'cmd.exe' -ArgumentList '/d /c npm.cmd run dev' -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDirectory 'web-out.log') -RedirectStandardError (Join-Path $logDirectory 'web-error.log') | Out-Null
         }

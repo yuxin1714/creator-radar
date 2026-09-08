@@ -35,6 +35,7 @@ from app.research_routes import router as research_router
 from app.models.research import ResearchRun
 from app.services.pagination import paginated
 from app.skill_update_routes import router as skill_update_router
+from app.services.job_queue import enqueue, publisher_loop, queue_status, QueueBusy
 
 settings = Settings()
 
@@ -44,7 +45,7 @@ async def lifespan(app: FastAPI):
     from app.services.task_recovery import local_worker_guard, recover_interrupted
     with local_worker_guard(engine):
         with SessionLocal() as db:
-            recover_interrupted(db)
+            recover_interrupted(db, recover_jobs=False)
         with SessionLocal() as db:
             if not db.get(PlaybookSource, "tki-content-creation"):
                 db.add(PlaybookSource(id="tki-content-creation", name="TKI 创作 Skill：故事化产品内容", repository_url="https://github.com/yuxin1714/-.git", skill_path="tki-content-creation/SKILL.md", revision="d2c8a809b6c89d7ac4da179c904f85f5524cd1a8"))
@@ -54,11 +55,12 @@ async def lifespan(app: FastAPI):
         monitor=asyncio.create_task(monitor_loop(settings))
         from app.services.skill_updates import skill_update_loop
         skill_monitor=asyncio.create_task(skill_update_loop())
+        publisher=asyncio.create_task(publisher_loop())
         try:
             yield
         finally:
-            monitor.cancel();skill_monitor.cancel()
-            for job in (monitor,skill_monitor):
+            monitor.cancel();skill_monitor.cancel();publisher.cancel()
+            for job in (monitor,skill_monitor,publisher):
                 try:await job
                 except asyncio.CancelledError:pass
 
@@ -67,6 +69,14 @@ app.include_router(creator_router)
 app.include_router(research_router)
 app.include_router(skill_update_router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
+
+@app.exception_handler(QueueBusy)
+async def queue_busy_handler(request, error):
+    return JSONResponse(status_code=409, content={'message': str(error)})
+
+@app.get('/api/v1/queue/status', tags=['tasks'])
+def get_queue_status():
+    return queue_status()
 
 class LinkInput(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
@@ -309,8 +319,8 @@ def start_work_analysis(work_id: str, background_tasks: BackgroundTasks):
         item = db.scalar(select(Analysis).where(Analysis.work_id == work_id, Analysis.owner_id == "local-user")) or Analysis(work_id=work_id)
         if item.status in ("PENDING", "PROCESSING"):
             return JSONResponse(status_code=409, content={"message": "分析任务正在运行，请等待完成。"})
-        item.status, item.error_summary = "PENDING", None; db.add(item); db.commit()
-    background_tasks.add_task(process_analysis, work_id, settings)
+        item.status, item.error_summary = "PENDING", None; db.add(item)
+        enqueue(db, 'analysis', work_id); db.commit()
     return {"message": "内容分析已开始。"}
 
 @app.post("/api/v1/works/{work_id}/transcript", status_code=202, tags=["transcripts"])
@@ -321,7 +331,6 @@ def start_work_transcript(work_id: str, background_tasks: BackgroundTasks):
         db.expunge(work)
     try: transcript = prepare_transcript(work, settings)
     except ProviderError as error: return JSONResponse(status_code=409, content={"code": error.code, "message": str(error)})
-    if transcript.status != "COMPLETED": background_tasks.add_task(process_transcript, work.id, settings)
     return {"message": "本地转写已开始。", "transcript": transcript_json(transcript)}
 
 @app.get("/api/v1/tasks", tags=["tasks"])
@@ -494,27 +503,28 @@ def start_creation_generation(project_id: str, background_tasks: BackgroundTasks
             item = prepare_generation(db, project_id, options or GenerationOptions(), settings)
         except ProviderError as error:
             return JSONResponse(status_code=404 if error.code == "project_not_found" else 409, content={"code": error.code, "message": str(error)})
+        enqueue(db, 'generation', item.id)
         db.commit(); db.refresh(item)
         generation_id = item.id
-    background_tasks.add_task(generate_creation, project_id, generation_id, settings)
     return {"message": "创作任务已开始。", "generation_id": generation_id}
 
 @app.post("/api/v1/tasks/{task_id}/run", tags=["tasks"])
 def run_task(task_id: str):
-    try:
-        return process_task(task_id, settings)
-    except ProviderError as error:
-        status = 409 if error.code in ("provider_not_configured", "task_running") else 404 if error.code == "task_not_found" else 502
-        return JSONResponse(status_code=status, content={"code": error.code, "message": str(error), "retryable": error.retryable})
+    return queue_metadata(task_id)
+
+
+def queue_metadata(task_id: str, retry_only=False):
+    with SessionLocal() as db:
+        task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == 'local-user').with_for_update())
+        if not task: return JSONResponse(status_code=404, content={'message': '任务不存在。'})
+        if retry_only and task.status != 'FAILED': return JSONResponse(status_code=409, content={'message':'只有失败任务可以重试。'})
+        if task.status == 'COMPLETED': return {'task_id':task.id,'work_id':task.work_id,'status':task.status}
+        if task.status in ('RUNNING','PROCESSING'): return JSONResponse(status_code=409,content={'message':'任务正在运行。'})
+        if not settings.tikhub_api_key: return JSONResponse(status_code=409,content={'message':'尚未配置 TikHub API Key。'})
+        task.status,task.stage,task.error_summary = 'PENDING','QUEUED',None
+        enqueue(db,'metadata',task.id);db.commit()
+        return {'task_id':task.id,'work_id':task.work_id,'status':task.status,'message':'采集任务已加入后台队列。'}
 
 @app.post("/api/v1/tasks/{task_id}/retry", tags=["tasks"])
 def retry_task(task_id: str):
-    with SessionLocal() as db:
-        task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == "local-user").with_for_update())
-        if not task:
-            return JSONResponse(status_code=404, content={"code": "task_not_found", "message": "任务不存在。"})
-        if task.status != "FAILED":
-            return JSONResponse(status_code=409, content={"code": "task_not_retryable", "message": "只有失败任务可以重试。"})
-        task.status, task.error_summary = "PENDING", None
-        db.commit()
-    return run_task(task_id)
+    return queue_metadata(task_id, retry_only=True)

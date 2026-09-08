@@ -34,7 +34,10 @@ def prepare_transcript(work: Work, settings: Settings):
         if item and item.status in ("PENDING", "PROCESSING", "COMPLETED"): return item
         item = item or Transcript(work_id=work.id, provider="faster-whisper", status="PENDING")
         item.status, item.error_summary = "PENDING", None
-        db.add(item); db.commit(); return item
+        db.add(item)
+        from app.services.job_queue import enqueue
+        enqueue(db, 'transcript', work.id)
+        db.commit(); return item
 
 def process_transcript(work_id: str, settings: Settings | None = None):
     settings, media_path = settings or Settings(), None

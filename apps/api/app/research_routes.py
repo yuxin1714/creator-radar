@@ -10,6 +10,7 @@ from app.services.research import ResearchInput,prepare_research,process_researc
 from app.providers.base import ProviderError
 from app.services.analysis_validation import validate_analysis
 from app.services.pagination import paginated
+from app.services.job_queue import enqueue
 
 
 def verified(result,text):
@@ -51,6 +52,6 @@ def start_research(work_id:str,body:ResearchInput,background_tasks:BackgroundTas
     with SessionLocal() as db:
         try:item=prepare_research(db,work_id,body,settings)
         except ProviderError as error:return JSONResponse(status_code=404 if error.code=='work_not_found' else 409,content={'message':str(error)})
+        enqueue(db,'research',item.id)
         db.commit();run_id=item.id
-    background_tasks.add_task(process_research,run_id,settings)
     return {'run_id':run_id,'message':'译稿任务已开始。' if body.kind=='translation' else '分析任务已开始。'}
