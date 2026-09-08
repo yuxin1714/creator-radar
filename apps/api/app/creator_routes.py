@@ -79,7 +79,8 @@ def list_feed(creator_id:str|None=None,today:bool=False):
         query=select(CreatorWork,Creator,Work,WorkMetadata).join(Creator,Creator.id==CreatorWork.creator_id).join(Work,Work.id==CreatorWork.work_id).outerjoin(WorkMetadata,WorkMetadata.work_id==Work.id).where(Creator.owner_id=='local-user',Work.owner_id=='local-user')
         if creator_id:query=query.where(Creator.id==creator_id)
         if today:query=query.where(CreatorWork.discovered_at>=utcnow()-timedelta(days=1))
-        rows=db.execute(query.order_by(CreatorWork.discovered_at.desc(),Work.id).limit(200)).all()
+        rows=db.execute(query.order_by(WorkMetadata.published_at.desc().nullslast(),CreatorWork.discovered_at.desc(),Work.id).limit(200)).all()
+        analyses={a.work_id:a for a in db.scalars(select(Analysis).where(Analysis.owner_id=='local-user',Analysis.work_id.in_([row[2].id for row in rows])))}
         return [{'id':work.id,'title':work.title or work.external_id,'creator_id':creator.id,'creator_name':creator.name,
                  'discovered_at':link.discovered_at,'published_at':metadata.published_at if metadata else None,
-                 'source_url':work.source_url} for link,creator,work,metadata in rows]
+                 'source_url':work.source_url,'platform':work.platform,'analysis_status':analyses[work.id].status if work.id in analyses else 'NOT_STARTED'} for link,creator,work,metadata in rows]

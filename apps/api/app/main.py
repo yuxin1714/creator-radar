@@ -138,6 +138,11 @@ def creation_json(item: CreationProject, brief: CreationBrief | None):
         generation_input = db.get(GenerationInput, generation.id) if generation else None
     return {"id": item.id, "work_id": item.work_id, "context_type": item.context_type, "title": item.title, "idea": item.idea, "output_language": item.output_language, "status": item.status, "body": item.body, "updated_at": item.updated_at.isoformat(), "brief": None if not brief else {"platform": brief.platform, "content_type": brief.content_type, "direction": brief.direction, "style": brief.style, "playbook_id": brief.playbook_id}, "latest_generation": None if not generation else {"id": generation.id, "status": generation.status, "content": generation.content, "error_summary": generation.error_summary, "playbook_id": generation.playbook_id, "playbook_revision": generation.playbook_revision, "mode": generation_input.mode if generation_input else "draft"}}
 
+@app.get("/api/v1/today", tags=["insights"])
+def get_today():
+    from app.services.daily_brief import daily_brief
+    with SessionLocal() as db:return daily_brief(db)
+
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok", "service": "creator-radar-api"}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DailyBrief } from "@/components/daily-brief";
 import { PlaybookRouting } from "@/components/playbook-matching";
 import { RegisterPlaybook } from "@/components/register-playbook";
 import { WorkLibrary } from "@/components/work-library";
@@ -135,7 +136,7 @@ function SettingsPanel(){const [skills,setSkills]=useState<Array<{id:string;name
 export function WorkspacePage({ section }: { section: string }) {
   const add = useContext(AddContext);
   return <><Heading section={section} />
-    {section === "today" ? <CreatorFeed today/> : section === "works" ? <WorkLibrary />
+    {section === "today" ? <DailyBrief/> : section === "works" ? <WorkLibrary />
     : section === "creation" ? <CreationPanel />
     : section === "tasks" ? <TaskCenter />
     : section === "settings" ? <SettingsPanel />
