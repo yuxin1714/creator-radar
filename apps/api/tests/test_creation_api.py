@@ -71,6 +71,18 @@ class CreationApiTests(unittest.TestCase):
             self.assertEqual(reread["output_language"], language)
             self.assertEqual(reread["body"], "Updated")
 
+    def test_configuration_only_save_invalidates_stale_editor(self):
+        from datetime import datetime
+        import json
+        created = main.create_creation_project(main.CreationInput(title='Configuration', body='Original'))
+        baseline = datetime.fromisoformat(created['updated_at'])
+        saved = main.update_creation_project(created['id'], main.CreationInput(title='Configuration', body='Original', style='sharp', expected_updated_at=baseline))
+        self.assertNotEqual(created['updated_at'], saved['updated_at'])
+        rejected = main.update_creation_project(created['id'], main.CreationInput(title='Configuration', body='Stale overwrite', expected_updated_at=baseline))
+        self.assertEqual(rejected.status_code, 409)
+        self.assertEqual(json.loads(rejected.body)['code'], 'project_conflict')
+        self.assertEqual(main.get_creation_project(created['id'])['body'], 'Original')
+
     def test_custom_rules_are_persisted(self):
         created = main.create_playbook(main.PlaybookInput(name="Test skill", rules=["Use verified facts"]))
         with self.sessions() as db:

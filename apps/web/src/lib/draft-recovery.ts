@@ -4,7 +4,9 @@ export function recoveryKey(projectId: string) {
   return `creator-radar:draft:v1:${projectId}`;
 }
 
-export function readRecovery(projectId: string): DraftSnapshot | null {
+export type RecoveredDraft = DraftSnapshot & { base_updated_at?: string };
+
+export function readRecovery(projectId: string): RecoveredDraft | null {
   const raw = sessionStorage.getItem(recoveryKey(projectId));
   if (!raw) return null;
   try {

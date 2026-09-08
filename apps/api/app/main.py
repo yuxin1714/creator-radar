@@ -454,13 +454,15 @@ def update_creation_project(project_id: str, body: CreationInput):
         if body.expected_updated_at is not None:
             normalize=lambda date:date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date.astimezone(timezone.utc)
             if normalize(body.expected_updated_at)!=normalize(item.updated_at):
-                return JSONResponse(status_code=409,content={'message':'草稿已在其他页面更新，当前修改未覆盖服务器版本。请先导出或复制当前正文，再刷新合并。'})
+                return JSONResponse(status_code=409,content={'code':'project_conflict','message':'草稿已在其他页面更新，当前修改未覆盖已保存版本。请对照两个版本后再保存。'})
         saved_brief=db.get(CreationBrief,item.id)
         content_changed=any(getattr(item,key)!=getattr(body,key) for key in ('title','idea','body','output_language'))
         options_changed=not saved_brief or any(getattr(saved_brief,key)!=getattr(body,key) for key in ('platform','content_type','direction','style','playbook_id'))
         if item.status=='COMPLETED' and (content_changed or options_changed):item.status='DRAFT'
         record_version(db, item, db.get(CreationBrief, item.id))
         item.title, item.idea, item.body, item.output_language = body.title, body.idea, body.body, body.output_language
+        # Configuration-only saves must also invalidate stale editor baselines.
+        item.updated_at = datetime.now(timezone.utc)
         brief = db.get(CreationBrief, item.id) or CreationBrief(project_id=item.id)
         brief.platform, brief.content_type, brief.direction, brief.style, brief.playbook_id = body.platform, body.content_type, body.direction, body.style, body.playbook_id
         db.add(brief)
