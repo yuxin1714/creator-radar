@@ -26,6 +26,8 @@ from app.models.work import CreationVersion
 from app.creator_routes import router as creator_router
 from app.models.work_preferences import WorkPreferences
 from app.services.work_preferences import preferences_json, save_preferences, PreferencesInput
+from app.services.playbook_registration import RemotePlaybookInput, register_remote
+from app.services.playbook_matching import PlaybookRouting, MatchingInput, criteria_for, recommend_playbooks
 
 settings = Settings()
 
@@ -292,6 +294,30 @@ def get_provider_status():
     status["analysis"] = {"configured": bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model),
                            "model": settings.llm_model or None}
     return status
+
+@app.get("/api/v1/playbook-matching", tags=["creation"])
+def get_playbook_matches(platform:str,content_type:str,direction:str,style:str):
+    with SessionLocal() as db:return recommend_playbooks(db,platform,content_type,direction,style)
+
+@app.get("/api/v1/playbook-routing/{source_id}", tags=["creation"])
+def get_playbook_routing(source_id:str):
+    with SessionLocal() as db:
+        if not db.get(PlaybookSource,source_id):return JSONResponse(status_code=404,content={'message':'Skill 不存在。'})
+        return criteria_for(db,source_id)
+
+@app.put("/api/v1/playbook-routing/{source_id}", tags=["creation"])
+def save_playbook_routing(source_id:str,body:MatchingInput):
+    with SessionLocal() as db:
+        source=db.scalar(select(PlaybookSource).where(PlaybookSource.id==source_id).with_for_update())
+        if not source:return JSONResponse(status_code=404,content={'message':'Skill 不存在。'})
+        item=db.get(PlaybookRouting,source_id) or PlaybookRouting(source_id=source_id)
+        item.criteria=body.model_dump();db.add(item);db.commit();return item.criteria
+
+@app.post("/api/v1/playbook-sources/remote", tags=["creation"])
+def register_remote_playbook(body:RemotePlaybookInput):
+    with SessionLocal() as db:
+        item,created=register_remote(db,body)
+        return {'id':item.id,'created':created,'message':'远程 Skill 已注册，请在列表中同步后使用。' if created else '这个仓库与路径已注册，可在列表中同步。'}
 
 @app.get("/api/v1/playbooks", tags=["creation"])
 def list_playbooks(include_inactive: bool = False):

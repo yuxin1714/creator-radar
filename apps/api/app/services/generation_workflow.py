@@ -61,6 +61,9 @@ def prepare_generation(db, project_id, options, settings):
         skill_id = source.playbook_id
     else:
         skill_id = brief.playbook_id
+        if skill_id == "auto":
+            from app.services.playbook_matching import recommend_playbooks
+            skill_id = recommend_playbooks(db, brief.platform, brief.content_type, brief.direction, brief.style)[0]['id']
         revision, skill = resolve_playbook(db, skill_id)
         reference = reference_context(db, project)
         context = {"output_language": project.output_language, "platform": brief.platform, "content_type": brief.content_type,
