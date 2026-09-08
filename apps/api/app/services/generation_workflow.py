@@ -31,6 +31,7 @@ def prepare_generation(db, project_id, options, settings):
     project = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user").with_for_update())
     if not project:
         raise ProviderError("project_not_found", "创作项目不存在。")
+    if project.status=='ARCHIVED':raise ProviderError('project_archived','项目已归档，请恢复为草稿后再生成。')
     brief = db.get(CreationBrief, project_id)
     if not brief:
         raise ProviderError("brief_required", "请先保存创作选项。")
@@ -72,6 +73,7 @@ def prepare_generation(db, project_id, options, settings):
     if options.mode == "refine":
         context["feedback"] = options.feedback.strip()
     generation = CreationGeneration(project_id=project_id, playbook_id=skill_id, playbook_revision=revision)
+    project.status='DRAFT'
     db.add(generation); db.flush()
     db.add(GenerationInput(generation_id=generation.id, mode=options.mode, context=context, model=settings.llm_model))
     db.flush()

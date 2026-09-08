@@ -11,7 +11,7 @@ export type DraftSnapshot = {
 };
 type Version = { id: string; version_number: number; snapshot: DraftSnapshot; created_at: string };
 
-export function DraftHistory({ projectId, refresh, onLoad }: { projectId: string; refresh: number; onLoad: (snapshot: DraftSnapshot) => void }) {
+export function DraftHistory({ projectId, refresh, onLoad, disabled=false }: { projectId: string; refresh: number; onLoad: (snapshot: DraftSnapshot) => void; disabled?:boolean }) {
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState("");
@@ -40,7 +40,7 @@ export function DraftHistory({ projectId, refresh, onLoad }: { projectId: string
           {versions.map(version => <option key={version.id} value={version.id}>V{version.version_number} · {new Date(version.created_at).toLocaleString("zh-CN")}</option>)}
         </select></label>
         {version && <div className="history-preview"><h3>{version.snapshot.title}</h3><p>{version.snapshot.idea}</p><DraftPreview content={version.snapshot.body || "（正文为空）"}/>
-          <Button variant="outline" onClick={() => onLoad(version.snapshot)}><RotateCcw size={15} />载入此版本</Button>
+          <Button variant="outline" disabled={disabled} onClick={() => onLoad(version.snapshot)}><RotateCcw size={15} />载入此版本</Button>
         </div>}
       </>}
     </>}

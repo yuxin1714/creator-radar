@@ -30,6 +30,7 @@ from app.services.work_preferences import preferences_json, save_preferences, Pr
 from app.services.playbook_registration import RemotePlaybookInput, register_remote
 from app.services.playbook_matching import PlaybookRouting, MatchingInput, criteria_for, recommend_playbooks
 from app.services.local_preferences import LocalPreference, LocalPreferenceInput, local_preferences
+from app.services.project_lifecycle import ProjectStatusInput,change_project_status
 
 settings = Settings()
 
@@ -411,16 +412,27 @@ def get_creation_project(project_id: str):
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
         return creation_json(item, db.get(CreationBrief, item.id))
 
+@app.patch("/api/v1/creation-projects/{project_id}/status", tags=["creation"])
+def update_project_status(project_id:str,body:ProjectStatusInput):
+    with SessionLocal() as db:
+        try:return change_project_status(db,project_id,body)
+        except ProviderError as error:return JSONResponse(status_code=404 if error.code=='project_not_found' else 409,content={'message':str(error)})
+
 @app.patch("/api/v1/creation-projects/{project_id}", tags=["creation"])
 def update_creation_project(project_id: str, body: CreationInput):
     with SessionLocal() as db:
         item = db.scalar(select(CreationProject).where(CreationProject.id == project_id, CreationProject.owner_id == "local-user").with_for_update())
         if not item:
             return JSONResponse(status_code=404, content={"code": "project_not_found", "message": "创作项目不存在。"})
+        if item.status=='ARCHIVED':return JSONResponse(status_code=409,content={'message':'项目已归档，请先恢复为草稿再编辑。'})
         if body.expected_updated_at is not None:
             normalize=lambda date:date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date.astimezone(timezone.utc)
             if normalize(body.expected_updated_at)!=normalize(item.updated_at):
                 return JSONResponse(status_code=409,content={'message':'草稿已在其他页面更新，当前修改未覆盖服务器版本。请先导出或复制当前正文，再刷新合并。'})
+        saved_brief=db.get(CreationBrief,item.id)
+        content_changed=any(getattr(item,key)!=getattr(body,key) for key in ('title','idea','body','output_language'))
+        options_changed=not saved_brief or any(getattr(saved_brief,key)!=getattr(body,key) for key in ('platform','content_type','direction','style','playbook_id'))
+        if item.status=='COMPLETED' and (content_changed or options_changed):item.status='DRAFT'
         record_version(db, item, db.get(CreationBrief, item.id))
         item.title, item.idea, item.body, item.output_language = body.title, body.idea, body.body, body.output_language
         brief = db.get(CreationBrief, item.id) or CreationBrief(project_id=item.id)
