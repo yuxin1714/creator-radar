@@ -34,6 +34,7 @@ from app.services.project_lifecycle import ProjectStatusInput,change_project_sta
 from app.research_routes import router as research_router
 from app.models.research import ResearchRun
 from app.services.pagination import paginated
+from app.skill_update_routes import router as skill_update_router
 
 settings = Settings()
 
@@ -51,16 +52,20 @@ async def lifespan(app: FastAPI):
         import asyncio
         from app.services.creator_monitor import monitor_loop
         monitor=asyncio.create_task(monitor_loop(settings))
+        from app.services.skill_updates import skill_update_loop
+        skill_monitor=asyncio.create_task(skill_update_loop())
         try:
             yield
         finally:
-            monitor.cancel()
-            try:await monitor
-            except asyncio.CancelledError:pass
+            monitor.cancel();skill_monitor.cancel()
+            for job in (monitor,skill_monitor):
+                try:await job
+                except asyncio.CancelledError:pass
 
 app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
 app.include_router(creator_router)
 app.include_router(research_router)
+app.include_router(skill_update_router)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
 class LinkInput(BaseModel):
@@ -394,7 +399,7 @@ def create_playbook(body: PlaybookInput):
 @app.post("/api/v1/playbooks/{playbook_id}/sync", tags=["creation"])
 def sync_remote_playbook(playbook_id: str):
     try: return sync_playbook(playbook_id)
-    except ProviderError as error: return JSONResponse(status_code=502, content={"code": error.code, "message": str(error)})
+    except ProviderError as error: return JSONResponse(status_code=409 if error.code=='playbook_sync_running' else 502, content={"code": error.code, "message": str(error)})
 
 @app.get("/api/v1/creation-projects", tags=["creation"])
 def list_creation_projects(page:int|None=None,page_size:int=20,q:str='',language:str='all',status:str='all'):

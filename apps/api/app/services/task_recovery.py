@@ -24,8 +24,12 @@ def local_worker_guard(engine):
 def recover_interrupted(db):
     from app.models.creator import Creator
     from app.models.research import ResearchRun
+    from app.services.skill_updates import SkillUpdatePolicy
     message = "服务重启，上一轮任务已中断。请查看详情后重新发起，原有正文和结果已保留。"
     count = 0
+    for policy in db.scalars(select(SkillUpdatePolicy).where(SkillUpdatePolicy.status=='PROCESSING')):
+        from app.models.work import utcnow
+        policy.status='FAILED';policy.error_summary='服务重启，自动更新中断；旧版本保留。';policy.next_check_at=utcnow();count+=1
     for creator in db.scalars(select(Creator).where(Creator.owner_id=='local-user',Creator.status=='PROCESSING')):
         creator.status='FAILED';creator.error_summary=message
         from app.models.work import utcnow

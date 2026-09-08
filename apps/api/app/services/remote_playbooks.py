@@ -1,6 +1,7 @@
 import re
 import subprocess
 import tempfile
+import threading
 from pathlib import Path, PurePosixPath
 from sqlalchemy import select
 from app.db import SessionLocal
@@ -9,6 +10,8 @@ from app.providers.base import ProviderError
 
 MAX_BYTES = 200_000
 BUNDLE_VERSION = ".b2"
+_sync_locks = {}
+_sync_locks_guard = threading.Lock()
 
 
 def git(*args, cwd=None):
@@ -52,6 +55,15 @@ def read_bundle(directory, skill_path):
 
 
 def sync_playbook(source_id: str):
+    with _sync_locks_guard:
+        lock = _sync_locks.setdefault(source_id, threading.Lock())
+    if not lock.acquire(blocking=False):
+        raise ProviderError('playbook_sync_running', '这个 Skill 正在同步，请稍后查看结果。')
+    try:return _sync_playbook(source_id)
+    finally:lock.release()
+
+
+def _sync_playbook(source_id: str):
     with SessionLocal() as db:
         source = db.get(PlaybookSource, source_id)
         if not source or source.source_type != "remote" or not source.repository_url or not source.skill_path:
