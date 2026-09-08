@@ -7,7 +7,7 @@ def task_overview(db):
     items = []
     for creator in db.scalars(select(Creator).where(Creator.owner_id=='local-user').order_by(Creator.created_at.desc()).limit(200)):
         items.append({'id':creator.id,'kind':'monitor','title':creator.name,'stage':'monitor','status':creator.status,
-                      'error_summary':creator.error_summary,'created_at':(creator.last_checked_at or creator.created_at).isoformat(),'href':'/creators'})
+                      'error_summary':creator.error_summary,'created_at':(creator.last_checked_at or creator.created_at).isoformat(),'href':'/creators/'+creator.id})
     for model, kind, tab in [(Task, "metadata", None), (Transcript, "transcript", "transcript"), (Analysis, "analysis", "analysis")]:
         rows = db.execute(select(model, Work).join(Work, model.work_id == Work.id).where(model.owner_id == "local-user", Work.owner_id == "local-user").order_by(model.created_at.desc()).limit(200)).all()
         for task, work in rows:

@@ -55,11 +55,13 @@ class CreatorMonitorTests(unittest.TestCase):
             items=creator_routes.list_feed(self.cid)
             self.assertEqual(len(items),1)
             self.assertEqual(items[0]['title'],'Test post')
+            self.assertEqual(creator_routes.get_creator(self.cid)['stats'],{'works':1,'transcripts':0,'analyses':0})
             self.assertFalse(creator_routes.update_creator(self.cid,creator_routes.CreatorPreference(daily=False))['daily'])
             with self.sessions() as db:
                 db.get(Creator,self.cid).owner_id='other';db.commit()
             self.assertEqual(creator_routes.list_feed(self.cid),[])
             self.assertEqual(creator_routes.list_creators(),[])
+            self.assertEqual(creator_routes.get_creator(self.cid).status_code,404)
             self.assertEqual(creator_routes.update_creator(self.cid,creator_routes.CreatorPreference(daily=True)).status_code,404)
 
     def test_rejects_non_homepage_and_sanitizes_share_parameters(self):

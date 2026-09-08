@@ -2,11 +2,11 @@ from datetime import timedelta
 from fastapi import APIRouter, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.core.config import Settings
 from app.db import SessionLocal
 from app.models.creator import Creator, CreatorWork
-from app.models.work import Work, WorkMetadata, utcnow
+from app.models.work import Work, WorkMetadata, Transcript, Analysis, utcnow
 from app.services.creator_monitor import add_creator, check_creator
 from app.services.link_validation import LinkError
 from app.providers.base import ProviderError
@@ -40,6 +40,18 @@ def create_creator(body:CreatorInput,background_tasks:BackgroundTasks):
     except (OSError,ValueError):return JSONResponse(status_code=502,content={'message':'无法验证创作者主页，请稍后重试。'})
     if created:background_tasks.add_task(check_creator,creator_id,Settings())
     return {'id':creator_id,'created':created,'message':'主页已添加，正在读取近期作品。' if created else '该主页已经添加。'}
+
+
+@router.get('/creators/{creator_id}')
+def get_creator(creator_id:str):
+    with SessionLocal() as db:
+        item=db.scalar(select(Creator).where(Creator.id==creator_id,Creator.owner_id=='local-user'))
+        if not item:return JSONResponse(status_code=404,content={'message':'创作者不存在。'})
+        work_ids=select(CreatorWork.work_id).join(Work,Work.id==CreatorWork.work_id).where(CreatorWork.creator_id==creator_id,Work.owner_id=='local-user')
+        count=db.scalar(select(func.count()).select_from(Work).where(Work.id.in_(work_ids)))
+        transcripts=db.scalar(select(func.count()).select_from(Transcript).where(Transcript.work_id.in_(work_ids),Transcript.owner_id=='local-user',Transcript.kind=='SOURCE',Transcript.status=='COMPLETED'))
+        analyses=db.scalar(select(func.count()).select_from(Analysis).where(Analysis.work_id.in_(work_ids),Analysis.owner_id=='local-user',Analysis.status=='COMPLETED'))
+        return {'creator':creator_json(item),'stats':{'works':count,'transcripts':transcripts,'analyses':analyses}}
 
 
 @router.patch('/creators/{creator_id}')

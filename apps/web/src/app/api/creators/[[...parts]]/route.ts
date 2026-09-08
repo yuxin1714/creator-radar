@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 type Context={params:Promise<{parts?:string[]}>};
 async function proxy(request:Request,context:Context){
  const {parts=[]}=await context.params;
- const valid=request.method==='GET'?parts.length===0:request.method==='PATCH'?parts.length===1:parts.length===0||parts.length===2&&parts[1]==='check';
+ const valid=request.method==='GET'?parts.length<=1:request.method==='PATCH'?parts.length===1:parts.length===0||parts.length===2&&parts[1]==='check';
  if(!valid)return NextResponse.json({message:'接口不存在。'},{status:404});
  const origin=request.headers.get('origin'),host=request.headers.get('host')||new URL(request.url).host;
  if(request.method!=='GET'&&origin&&origin!==`${new URL(request.url).protocol}//${host}`)return NextResponse.json({message:'请求来源无效。'},{status:403});
