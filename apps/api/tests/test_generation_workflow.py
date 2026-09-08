@@ -73,3 +73,23 @@ class GenerationWorkflowTests(unittest.TestCase):
         with self.sessions() as db:
             self.assertEqual(db.get(CreationGeneration, gid).status, "FAILED")
             self.assertEqual(db.get(CreationProject, self.project_id).body, "Keep draft")
+
+    def test_refinement_requires_feedback_and_freezes_current_draft(self):
+        with self.sessions() as db:
+            with self.assertRaises(ProviderError):
+                prepare_generation(db, self.project_id, GenerationOptions(mode="refine", feedback="  "), self.settings)
+            item = prepare_generation(db, self.project_id, GenerationOptions(mode="refine", feedback="Shorter opening"), self.settings)
+            gid = item.id
+            db.commit()
+            db.get(CreationProject, self.project_id).body = "Later edit"
+            db.commit()
+        response = io.StringIO(json.dumps({"choices":[{"message":{"content":"Revised draft"}}]}))
+        with patch.object(worker, "SessionLocal", self.sessions), patch.object(worker.urllib.request, "urlopen", return_value=response) as call:
+            worker.generate(self.project_id, gid, self.settings)
+            prompt = json.loads(call.call_args.args[0].data)["messages"][1]["content"]
+            self.assertIn("Shorter opening", prompt)
+            self.assertIn("Keep draft", prompt)
+            self.assertNotIn("Later edit", prompt)
+        with self.sessions() as db:
+            self.assertEqual(db.get(CreationGeneration, gid).content, "Revised draft")
+            self.assertEqual(db.get(CreationProject, self.project_id).body, "Later edit")

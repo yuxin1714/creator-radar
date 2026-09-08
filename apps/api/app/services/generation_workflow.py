@@ -7,7 +7,8 @@ from app.services.creation_playbooks import resolve_playbook
 
 
 class GenerationOptions(BaseModel):
-    mode: Literal["draft", "directions"] = "draft"
+    mode: Literal["draft", "directions", "refine"] = "draft"
+    feedback: str | None = Field(default=None, max_length=5000)
     direction_generation_id: str | None = Field(default=None, max_length=36)
     direction_index: int | None = Field(default=None, ge=0, le=2)
 
@@ -36,6 +37,10 @@ def prepare_generation(db, project_id, options, settings):
     active = db.scalar(select(CreationGeneration.id).where(CreationGeneration.project_id == project_id, CreationGeneration.status.in_(["PENDING", "PROCESSING"])))
     if active:
         raise ProviderError("generation_running", "这个项目已有生成任务，请等待完成。")
+    if options.mode == "refine" and (not (options.feedback or "").strip() or not (project.body or "").strip()):
+        raise ProviderError("refinement_required", "请先填写正文和修改意见。")
+    if options.mode != "refine" and options.feedback is not None:
+        raise ProviderError("invalid_feedback", "修改意见仅用于反馈优化任务。")
     if options.direction_generation_id is not None or options.direction_index is not None:
         if options.mode != "draft" or options.direction_generation_id is None or options.direction_index is None:
             raise ProviderError("invalid_direction", "请选择完整的创作方向。")
@@ -61,6 +66,8 @@ def prepare_generation(db, project_id, options, settings):
         context = {"output_language": project.output_language, "platform": brief.platform, "content_type": brief.content_type,
                    "direction": brief.direction, "style": brief.style, "title": project.title, "idea": project.idea or "",
                    "existing_draft": project.body or "", "skill": skill, "reference": reference}
+    if options.mode == "refine":
+        context["feedback"] = options.feedback.strip()
     generation = CreationGeneration(project_id=project_id, playbook_id=skill_id, playbook_revision=revision)
     db.add(generation); db.flush()
     db.add(GenerationInput(generation_id=generation.id, mode=options.mode, context=context, model=settings.llm_model))
