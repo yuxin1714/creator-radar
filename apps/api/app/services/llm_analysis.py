@@ -11,7 +11,9 @@ def configured(settings: Settings) -> bool:
 def process_analysis(work_id: str, settings: Settings | None = None):
     settings = settings or Settings()
     with SessionLocal() as db:
-        item = db.query(Analysis).filter_by(work_id=work_id, owner_id="local-user").first()
+        item = db.query(Analysis).filter_by(work_id=work_id, owner_id="local-user").with_for_update().first()
+        if not item or item.status != "PENDING":
+            return
         transcript = db.query(Transcript).filter_by(work_id=work_id, owner_id="local-user", kind="SOURCE").first()
         if not item or not transcript or transcript.status != "COMPLETED" or not transcript.text:
             raise ProviderError("transcript_required", "请先完成原文逐字稿。")

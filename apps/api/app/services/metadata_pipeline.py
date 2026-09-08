@@ -14,8 +14,12 @@ def process_task(task_id: str, settings: Settings | None = None):
     settings = settings or Settings()
     provider = TikHubProvider(settings.tikhub_api_key, settings.tikhub_base_url)
     with SessionLocal() as db:
-        task = db.get(Task, task_id)
+        task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == "local-user").with_for_update())
         if not task: raise ProviderError("task_not_found", "任务不存在。")
+        if task.status in ("RUNNING", "PROCESSING"):
+            raise ProviderError("task_running", "采集任务正在运行，请等待完成。")
+        if task.status == "COMPLETED":
+            return {"task_id": task.id, "work_id": task.work_id, "status": task.status}
         work = db.get(Work, task.work_id)
         if not provider.configured:
             task.stage, task.status, task.error_summary = "WAITING_PROVIDER", "PENDING", "尚未配置 TikHub API Key。"

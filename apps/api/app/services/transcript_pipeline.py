@@ -29,6 +29,7 @@ def transcript_state(work: Work, settings: Settings):
 def prepare_transcript(work: Work, settings: Settings):
     if settings.asr_provider != "local_faster_whisper": raise ProviderError("asr_not_configured", "本地 ASR 尚未配置。")
     with SessionLocal() as db:
+        db.scalar(select(Work).where(Work.id == work.id, Work.owner_id == "local-user").with_for_update())
         item = db.scalar(select(Transcript).where(Transcript.owner_id == "local-user", Transcript.work_id == work.id, Transcript.kind == "SOURCE"))
         if item and item.status in ("PENDING", "PROCESSING", "COMPLETED"): return item
         item = item or Transcript(work_id=work.id, provider="faster-whisper", status="PENDING")
@@ -39,8 +40,8 @@ def process_transcript(work_id: str, settings: Settings | None = None):
     settings, media_path = settings or Settings(), None
     with SessionLocal() as db:
         work = db.scalar(select(Work).where(Work.id == work_id, Work.owner_id == "local-user"))
-        item = db.scalar(select(Transcript).where(Transcript.owner_id == "local-user", Transcript.work_id == work_id, Transcript.kind == "SOURCE"))
-        if not work or not item: return
+        item = db.scalar(select(Transcript).where(Transcript.owner_id == "local-user", Transcript.work_id == work_id, Transcript.kind == "SOURCE").with_for_update())
+        if not work or not item or item.status != "PENDING": return
         item.status = "PROCESSING"; db.commit()
         platform, external_id = work.platform, work.external_id
     try:

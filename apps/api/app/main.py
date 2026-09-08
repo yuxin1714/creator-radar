@@ -29,11 +29,15 @@ settings = Settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
-    with SessionLocal() as db:
-        if not db.get(PlaybookSource, "tki-content-creation"):
-            db.add(PlaybookSource(id="tki-content-creation", name="TKI 创作 Skill：故事化产品内容", repository_url="https://github.com/yuxin1714/-.git", skill_path="tki-content-creation/SKILL.md", revision="d2c8a809b6c89d7ac4da179c904f85f5524cd1a8"))
-            db.commit()
-    yield
+    from app.services.task_recovery import local_worker_guard, recover_interrupted
+    with local_worker_guard(engine):
+        with SessionLocal() as db:
+            recover_interrupted(db)
+        with SessionLocal() as db:
+            if not db.get(PlaybookSource, "tki-content-creation"):
+                db.add(PlaybookSource(id="tki-content-creation", name="TKI 创作 Skill：故事化产品内容", repository_url="https://github.com/yuxin1714/-.git", skill_path="tki-content-creation/SKILL.md", revision="d2c8a809b6c89d7ac4da179c904f85f5524cd1a8"))
+                db.commit()
+        yield
 
 app = FastAPI(title=settings.app_name, version="0.6.0", lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
@@ -225,10 +229,15 @@ def start_work_analysis(work_id: str, background_tasks: BackgroundTasks):
     if not analysis_configured(settings):
         return JSONResponse(status_code=409, content={"code": "llm_not_configured", "message": "分析模型尚未配置。"})
     with SessionLocal() as db:
+        work = db.scalar(select(Work).where(Work.id == work_id, Work.owner_id == "local-user").with_for_update())
+        if not work:
+            return JSONResponse(status_code=404, content={"message": "作品不存在。"})
         transcript = db.scalar(select(Transcript).where(Transcript.work_id == work_id, Transcript.owner_id == "local-user", Transcript.kind == "SOURCE"))
         if not transcript or transcript.status != "COMPLETED":
             return JSONResponse(status_code=409, content={"code": "transcript_required", "message": "请先完成原文逐字稿。"})
         item = db.scalar(select(Analysis).where(Analysis.work_id == work_id, Analysis.owner_id == "local-user")) or Analysis(work_id=work_id)
+        if item.status in ("PENDING", "PROCESSING"):
+            return JSONResponse(status_code=409, content={"message": "分析任务正在运行，请等待完成。"})
         item.status, item.error_summary = "PENDING", None; db.add(item); db.commit()
     background_tasks.add_task(process_analysis, work_id, settings)
     return {"message": "内容分析已开始。"}
@@ -362,13 +371,13 @@ def run_task(task_id: str):
     try:
         return process_task(task_id, settings)
     except ProviderError as error:
-        status = 409 if error.code == "provider_not_configured" else 404 if error.code == "task_not_found" else 502
+        status = 409 if error.code in ("provider_not_configured", "task_running") else 404 if error.code == "task_not_found" else 502
         return JSONResponse(status_code=status, content={"code": error.code, "message": str(error), "retryable": error.retryable})
 
 @app.post("/api/v1/tasks/{task_id}/retry", tags=["tasks"])
 def retry_task(task_id: str):
     with SessionLocal() as db:
-        task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == "local-user"))
+        task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == "local-user").with_for_update())
         if not task:
             return JSONResponse(status_code=404, content={"code": "task_not_found", "message": "任务不存在。"})
         if task.status != "FAILED":
