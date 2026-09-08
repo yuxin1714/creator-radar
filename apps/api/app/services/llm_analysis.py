@@ -4,6 +4,7 @@ from app.core.config import Settings
 from app.db import SessionLocal
 from app.models.work import Analysis, Transcript
 from app.providers.base import ProviderError
+from app.services.analysis_validation import validate_analysis
 
 def configured(settings: Settings) -> bool:
     return bool(settings.llm_api_key and settings.llm_base_url and settings.llm_model)
@@ -26,11 +27,16 @@ def process_analysis(work_id: str, settings: Settings | None = None):
         response = json.load(urllib.request.urlopen(request, timeout=120))
         content = response["choices"][0]["message"]["content"]
         result = json.loads(content)
-        if not isinstance(result, dict): raise ValueError("结果不是对象")
+        result = validate_analysis(result, text)
         with SessionLocal() as db:
             item = db.query(Analysis).filter_by(work_id=work_id, owner_id="local-user").first()
-            item.status, item.result, item.error_summary = "COMPLETED", result, None; db.commit()
-    except Exception:
+            item.status, item.result, item.error_summary = "COMPLETED", result, None
+            item.schema_version = "0.2"
+            db.commit()
+    except Exception as error:
         with SessionLocal() as db:
             item = db.query(Analysis).filter_by(work_id=work_id, owner_id="local-user").first()
-            if item: item.status, item.error_summary = "FAILED", "模型分析失败，请检查 API 日志或重试。"; db.commit()
+            if item:
+                item.status = "FAILED"
+                item.error_summary = "模型返回格式或逐字稿证据未通过校验，请重试。" if isinstance(error, (ValueError, TypeError, KeyError)) else "模型分析失败，请检查 API 日志或重试。"
+                db.commit()

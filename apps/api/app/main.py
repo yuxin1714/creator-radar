@@ -215,9 +215,17 @@ def get_work_analysis(work_id: str):
         analysis = db.scalar(select(Analysis).where(Analysis.work_id == work.id, Analysis.owner_id == "local-user"))
         transcript = db.scalar(select(Transcript).where(Transcript.work_id == work.id, Transcript.owner_id == "local-user", Transcript.kind == "SOURCE"))
         if analysis:
+            from app.services.analysis_validation import validate_analysis
+            evidence_verified = False
+            if analysis.result and transcript and transcript.status == "COMPLETED":
+                try:
+                    validate_analysis(analysis.result, transcript.text or "")
+                    evidence_verified = True
+                except (ValueError, TypeError):
+                    pass
             return {"availability": "READY" if analysis.status == "COMPLETED" else analysis.status, "analysis": {
                 "id": analysis.id, "status": analysis.status, "analysis_language": analysis.analysis_language,
-                "schema_version": analysis.schema_version, "result": analysis.result,
+                "schema_version": analysis.schema_version, "result": analysis.result, "evidence_verified": evidence_verified,
                 "error_summary": analysis.error_summary, "created_at": analysis.created_at.isoformat(),
                 "updated_at": analysis.updated_at.isoformat()}}
         if not transcript or transcript.status != "COMPLETED":
